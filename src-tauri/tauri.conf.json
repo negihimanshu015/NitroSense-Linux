@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "nitrosense-linux",
   "version": "0.1.0",
-  "identifier": "com.thephenominal.nitrosense-linux",
+  "identifier": "com.negihimanshu.nitrosense-linux",
   "build": {
     "frontendDist": "../src"
   },

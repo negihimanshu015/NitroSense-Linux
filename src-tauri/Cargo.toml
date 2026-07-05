@@ -2,7 +2,7 @@
 name = "nitrosense-linux"
 version = "0.1.0"
 description = "Fan, RGB and system monitor for Acer Nitro laptops on Linux"
-authors = ["thephenominal"]
+authors = ["Negi Himanshu"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
