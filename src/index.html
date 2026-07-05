@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nitro Control - Liquid Glass Console</title>
+  <link rel="stylesheet" href="fonts.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- Shrunk, High-Equity Glassmorphic Console Frame -->
+  <div class="app-frame" data-tauri-drag-region>
+    
+    <!-- Background Fluid mesh (moved inside frame for rounded corner clipping) -->
+    <div class="bg-fluid-layer">
+      <div class="bg-blob bg-blob-1"></div>
+      <div class="bg-blob bg-blob-2"></div>
+      <div class="bg-blob bg-blob-3"></div>
+    </div>
+    
+    <!-- Custom Window Controls -->
+    <div class="window-controls">
+      <button class="win-control-btn win-minimize" id="win-minimize" title="Minimize" aria-label="Minimize window">
+        <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      </button>
+      <button class="win-control-btn win-close" id="win-close" title="Close" aria-label="Close window">
+        <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line></svg><svg viewBox="0 0 24 24"><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+    
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar" data-tauri-drag-region>
+      <div>
+        <div class="logo-container">
+          <div class="logo">
+            NITRO<span>CONTROL</span>
+          </div>
+          <div class="logo-sub">Linux Console</div>
+        </div>
+        
+        <nav>
+          <ul class="nav-list" role="tablist">
+            <li class="nav-item active" data-target="screen-fan" role="tab" tabindex="0" aria-label="Fan Controls" aria-selected="true">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 12A4 4 0 1 0 8 8M12 12A4 4 0 1 0 16 8M12 12A4 4 0 1 0 16 16M12 12A4 4 0 1 0 8 16" /></svg>
+              Fan Controls
+            </li>
+            <li class="nav-item" data-target="screen-monitoring" role="tab" tabindex="0" aria-label="System Status" aria-selected="false">
+              <svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>
+              System Status
+            </li>
+            <li class="nav-item" data-target="screen-keyboard" role="tab" tabindex="0" aria-label="Keyboard RGB" aria-selected="false">
+              <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2" ry="2" /><line x1="6" y1="8" x2="6" y2="8" /><line x1="10" y1="8" x2="10" y2="8" /><line x1="14" y1="8" x2="14" y2="8" /><line x1="18" y1="8" x2="18" y2="8" /><line x1="6" y1="12" x2="6" y2="12" /><line x1="10" y1="12" x2="10" y2="12" /><line x1="14" y1="12" x2="14" y2="12" /><line x1="18" y1="12" x2="18" y2="12" /><line x1="7" y1="16" x2="17" y2="16" /></svg>
+              Keyboard RGB
+            </li>
+          </ul>
+        </nav>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-stats">
+          <div class="sidebar-stat-row">
+            <span class="sidebar-stat-lbl">CPU Temp</span>
+            <span class="sidebar-stat-val text-cpu-temp">54°C</span>
+          </div>
+          <div class="sidebar-stat-row">
+            <span class="sidebar-stat-lbl">GPU Temp</span>
+            <span class="sidebar-stat-val text-gpu-temp">50°C</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Screens -->
+    <main class="content-area" data-tauri-drag-region>
+
+      <!-- ==========================================
+           SCREEN 1: FAN CONTROLS
+           ========================================== -->
+      <section id="screen-fan" class="screen-panel active">
+
+        <div class="fan-grid-equity">
+          <!-- Col 1: Modes and Sliders -->
+          <div class="equity-col">
+            <div class="glass-card mode-card">
+              <h3>Operating Mode</h3>
+              <div class="mode-selector">
+                <button class="mode-btn active" data-mode="auto" id="btn-auto">Auto</button>
+                <button class="mode-btn" data-mode="max" id="btn-max">Max</button>
+                <button class="mode-btn" data-mode="custom" id="btn-custom">Custom</button>
+              </div>
+            </div>
+
+            <div class="glass-card sliders-card disabled" id="custom-controls">
+              <h3>Manual Scaling</h3>
+              
+              <div class="slider-group">
+                <div class="slider-info">
+                  <span class="label">CPU Duty Cycle</span>
+                  <span class="value cpu-val-display" id="cpu-val">75%</span>
+                </div>
+                <div class="range-input-container">
+                  <input type="range" class="glass-range cpu-slider-input" id="cpu-slider" min="0" max="100" value="75" disabled>
+                </div>
+              </div>
+
+              <div class="slider-group slider-group-gpu">
+                <div class="slider-info">
+                  <span class="label">GPU Duty Cycle</span>
+                  <span class="value gpu-val-display" id="gpu-val">75%</span>
+                </div>
+                <div class="range-input-container">
+                  <input type="range" class="glass-range gpu-slider-input" id="gpu-slider" min="0" max="100" value="75" disabled>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Col 2: Telemetry status cards -->
+          <div class="equity-col">
+            <div class="glass-card status-panel">
+              <h3>Core Thermal Status</h3>
+              
+              <div class="telemetry-row-card">
+                <div class="telemetry-sub-widget">
+                  <svg viewBox="0 0 96 96">
+                    <circle class="tel-bg-ring" cx="48" cy="48" r="42"></circle>
+                    <circle class="tel-fill-ring cpu" id="gov-cpu-temp-ring" cx="48" cy="48" r="42"></circle>
+                  </svg>
+                  <div class="tel-text">
+                    <div class="tel-number text-cpu-temp">54°C</div>
+                  </div>
+                  <div class="tel-label">CPU Temp</div>
+                </div>
+
+                <div class="telemetry-sub-widget">
+                  <svg viewBox="0 0 96 96">
+                    <circle class="tel-bg-ring" cx="48" cy="48" r="42"></circle>
+                    <circle class="tel-fill-ring gpu" id="gov-gpu-temp-ring" cx="48" cy="48" r="42"></circle>
+                  </svg>
+                  <div class="tel-text">
+                    <div class="tel-number text-gpu-temp">50°C</div>
+                  </div>
+                  <div class="tel-label">GPU Temp</div>
+                </div>
+              </div>
+
+              <div class="telemetry-row-card">
+                <div class="telemetry-sub-widget">
+                  <svg viewBox="0 0 96 96">
+                    <circle class="tel-bg-ring" cx="48" cy="48" r="42"></circle>
+                    <circle class="tel-fill-ring cpu" id="gov-cpu-rpm-ring" cx="48" cy="48" r="42"></circle>
+                  </svg>
+                  <div class="tel-text">
+                    <div class="tel-number text-cpu-rpm">3200</div>
+                  </div>
+                  <div class="tel-label">CPU RPM</div>
+                </div>
+
+                <div class="telemetry-sub-widget">
+                  <svg viewBox="0 0 96 96">
+                    <circle class="tel-bg-ring" cx="48" cy="48" r="42"></circle>
+                    <circle class="tel-fill-ring gpu" id="gov-gpu-rpm-ring" cx="48" cy="48" r="42"></circle>
+                  </svg>
+                  <div class="tel-text">
+                    <div class="tel-number text-gpu-rpm">2900</div>
+                  </div>
+                  <div class="tel-label">GPU RPM</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==========================================
+           SCREEN 2: SYSTEM STATUS
+           ========================================== -->
+      <section id="screen-monitoring" class="screen-panel">
+
+        <div class="monitoring-grid-equity">
+          <!-- Status Grid metrics -->
+          <div class="glass-card mon-card">
+            <h3>Performance Specs</h3>
+            
+            <div class="stats-density-grid">
+              <div class="stat-density-box">
+                <div class="stat-density-val text-cpu-temp">54°C</div>
+                <div class="stat-density-lbl">CPU Temp</div>
+              </div>
+              <div class="stat-density-box">
+                <div class="stat-density-val text-cpu-rpm">3200</div>
+                <div class="stat-density-lbl">CPU Speed</div>
+              </div>
+
+              <div class="stat-density-box">
+                <div class="stat-density-val gpu text-gpu-temp">50°C</div>
+                <div class="stat-density-lbl">GPU Temp</div>
+              </div>
+              <div class="stat-density-box">
+                <div class="stat-density-val gpu text-gpu-rpm">2900</div>
+                <div class="stat-density-lbl">GPU Speed</div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Utilization card -->
+          <div class="glass-card mon-card">
+            <h3>Utilization load</h3>
+            <div class="util-bars-list">
+              <div class="util-row">
+                <div class="util-info">
+                  <span>Processor Utilization</span>
+                  <span class="value val-cpu-util">34%</span>
+                </div>
+                <div class="util-bar-bg">
+                  <div class="util-bar-fill" id="bar-cpu-util" style="width: 34%;"></div>
+                </div>
+              </div>
+              <div class="util-row">
+                <div class="util-info">
+                  <span>Graphics Utilization</span>
+                  <span class="value val-gpu-util">18%</span>
+                </div>
+                <div class="util-bar-bg">
+                  <div class="util-bar-fill gpu" id="bar-gpu-util" style="width: 18%;"></div>
+                </div>
+              </div>
+              <div class="util-row">
+                <div class="util-info">
+                  <span>Memory (RAM)</span>
+                  <span class="value val-ram-util">42%</span>
+                </div>
+                <div class="util-bar-bg">
+                  <div class="util-bar-fill" id="bar-ram-util" style="width: 42%;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Core History Chart -->
+          <div class="glass-card history-card">
+            <div class="card-header-row">
+              <h3>Core Thermal History</h3>
+              <div class="chart-legend">
+                <div class="legend-item"><div class="legend-dot cpu"></div> CPU</div>
+                <div class="legend-item"><div class="legend-dot gpu"></div> GPU</div>
+              </div>
+            </div>
+            <div class="chart-container">
+              <div class="chart-layout">
+                <div class="chart-y-axis">
+                  <span class="chart-y-label" style="top: 20%;">80°C</span>
+                  <span class="chart-y-label" style="top: 50%;">50°C</span>
+                  <span class="chart-y-label" style="top: 80%;">20°C</span>
+                </div>
+                <div class="chart-main">
+                  <svg class="chart-svg" id="realtime-chart" viewBox="0 0 500 100" preserveAspectRatio="none">
+                    <line class="chart-grid-line" x1="0" y1="20" x2="500" y2="20"></line>
+                    <line class="chart-grid-line" x1="0" y1="50" x2="500" y2="50"></line>
+                    <line class="chart-grid-line" x1="0" y1="80" x2="500" y2="80"></line>
+                    
+                    <path class="chart-line cpu" id="path-cpu" d=""></path>
+                    <path class="chart-line gpu" id="path-gpu" d=""></path>
+                  </svg>
+                  <div class="chart-x-axis">
+                    <span>60s ago</span>
+                    <span>30s ago</span>
+                    <span>Now</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==========================================
+           SCREEN 3: KEYBOARD RGB
+           ========================================== -->
+      <section id="screen-keyboard" class="screen-panel">
+
+        <div class="rgb-grid-equity">
+          <div class="equity-col">
+            <!-- Lighting Configuration Controls (Merged to prevent overflow) -->
+            <div class="glass-card preset-card">
+              <!-- Top Half: Presets -->
+              <div class="preset-section">
+                <h3>Presets</h3>
+                <div class="presets-list">
+                  <button class="preset-btn active" data-preset="static">Static Color</button>
+                  <button class="preset-btn" data-preset="breathing">Breathing</button>
+                  <button class="preset-btn" data-preset="wave">Color Wave</button>
+                  <button class="preset-btn" data-preset="neon">Neon Loop</button>
+                </div>
+              </div>
+
+              <!-- Bottom Half: Modifiers -->
+              <div class="modifiers-section">
+                <h3>Modifiers</h3>
+                
+                <div class="slider-group">
+                  <div class="slider-info">
+                    <span class="label">Brightness</span>
+                    <span class="value val-brightness">80%</span>
+                  </div>
+                  <div class="range-input-container">
+                    <input type="range" class="glass-range slider-brightness" min="0" max="100" value="80">
+                  </div>
+                </div>
+
+                <div class="slider-group">
+                  <div class="slider-info">
+                    <span class="label">Speed</span>
+                    <span class="value val-speed">Medium</span>
+                  </div>
+                  <div class="range-input-container">
+                    <input type="range" class="glass-range slider-speed" min="1" max="3" value="2">
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- RGB Visualizer mockup with integrated color palette at bottom (single card) -->
+          <div class="rgb-visualizer-container">
+            <div class="glass-card keyboard-card">
+              <!-- Keyboard Mockup split into 4 zones -->
+              <div class="keyboard-mockup-frame">
+                <!-- Zone 1 -->
+                <div class="kb-zone kb-zone-1 selected" data-zone="1" role="button" tabindex="0" aria-label="Select Zone 1">
+                  <div class="kb-zone-header">Z1</div>
+                  <div class="kb-keys-grid">
+                    <div class="kb-key wide"></div><div class="kb-key"></div><div class="kb-key"></div>
+                    <div class="kb-key"></div><div class="kb-key"></div><div class="kb-key"></div><div class="kb-key"></div>
+                    <div class="kb-key wide"></div><div class="kb-key"></div><div class="kb-key"></div>
+                  </div>
+                </div>
+                
+                <!-- Zone 2 -->
+                <div class="kb-zone kb-zone-2" data-zone="2" role="button" tabindex="0" aria-label="Select Zone 2">
+                  <div class="kb-zone-header">Z2</div>
+                  <div class="kb-keys-grid">
+                    <div class="kb-key"></div><div class="kb-key"></div><div class="kb-key"></div><div class="kb-key"></div>
+                    <div class="kb-key"></div><div class="kb-key"></div><div class="kb-key"></div><div class="kb-key"></div>
+                    <div class="kb-key"></div><div class="kb-key wide"></div><div class="kb-key"></div>
+                  </div>
+                </div>
+
+                <!-- Zone 3 -->
+                <div class="kb-zone kb-zone-3" data-zone="3" role="button" tabindex="0" aria-label="Select Zone 3">
+                  <div class="kb-zone-header">Z3</div>
+                  <div class="kb-keys-grid">
+                    <div class="kb-key"></div><div class="kb-key"></div><div class="kb-key"></div><div class="kb-key"></div>
+                    <div class="kb-key"></div><div class="kb-key"></div><div class="kb-key"></div><div class="kb-key"></div>
+                    <div class="kb-key wide"></div><div class="kb-key"></div><div class="kb-key"></div>
+                  </div>
+                </div>
+
+                <!-- Zone 4 -->
+                <div class="kb-zone kb-zone-4" data-zone="4" role="button" tabindex="0" aria-label="Select Zone 4">
+                  <div class="kb-zone-header">Z4</div>
+                  <div class="kb-keys-grid">
+                    <div class="kb-key"></div><div class="kb-key"></div><div class="kb-key"></div><div class="kb-key"></div>
+                    <div class="kb-key"></div><div class="kb-key"></div><div class="kb-key tall"></div><div class="kb-key"></div>
+                    <div class="kb-key wide"></div><div class="kb-key"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Color Palette selector for active selected Zone (integrated inside keyboard card) -->
+              <div class="color-editor-inline">
+                <div class="editor-label-group">
+                  <h4 class="editor-title">Zone 1 Illumination</h4>
+                </div>
+                
+                <div class="color-palette" role="group" aria-label="Color palette">
+                  <div class="palette-color" style="background: #9d4edd; color: #9d4edd;" role="button" tabindex="0" aria-label="Purple"></div>
+                  <div class="palette-color" style="background: #7b2cbf; color: #7b2cbf;" role="button" tabindex="0" aria-label="Deep Purple"></div>
+                  <div class="palette-color" style="background: #c77dff; color: #c77dff;" role="button" tabindex="0" aria-label="Lavender"></div>
+                  <div class="palette-color" style="background: #e0a1ff; color: #e0a1ff;" role="button" tabindex="0" aria-label="Light Lavender"></div>
+                  <div class="palette-color" style="background: #3a86c8; color: #3a86c8;" role="button" tabindex="0" aria-label="Blue"></div>
+                  <div class="palette-color" style="background: #5a189a; color: #5a189a;" role="button" tabindex="0" aria-label="Indigo"></div>
+                  <div class="palette-color" style="background: #ffffff; color: #ffffff;" role="button" tabindex="0" aria-label="White"></div>
+                  <div class="palette-color selected" style="background: #ff0000; color: #ff0000;" role="button" tabindex="0" aria-label="Red"></div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script type="module" src="/main.js"></script>
+</body>
+</html>
