@@ -422,8 +422,8 @@ input[type=range].glass-range::-webkit-slider-thumb {
   fill: none;
   stroke-width: 5;
   stroke-linecap: round;
-  stroke-dasharray: 263.9; /* 2 * PI * 42 */
-  stroke-dashoffset: 263.9; /* default: fully hidden */
+  stroke-dasharray: 263.8938; /* 2 * PI * 42 — kept in sync with CIRC in main.js */
+  stroke-dashoffset: 263.8938; /* default: fully hidden */
   transition: stroke-dashoffset 0.5s ease;
 }
 

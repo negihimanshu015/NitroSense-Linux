@@ -7,10 +7,6 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[lib]
-# Required by tauri-build for code generation. The lib contains no application logic.
-name = "nitrosense_linux_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

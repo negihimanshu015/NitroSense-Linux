@@ -1,6 +1,4 @@
-// Guard against running outside of a Tauri WebView (e.g. browser dev preview).
-// Without this check, accessing window.__TAURI__ when Tauri IPC is unavailable
-// throws a TypeError at startup and breaks the entire script.
+// Guard against running outside of a Tauri WebView to prevent TypeError at startup.
 if (!window.__TAURI__) {
   console.error('[NitroSense] Tauri IPC is not available. This app must be run inside a Tauri window.');
   document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#fff;font-family:sans-serif;font-size:1.2rem;">Must be launched as a Tauri app.</div>';
@@ -27,12 +25,10 @@ async function setMode(mode) {
     await invoke('set_fan_mode', { mode });
     currentMode = mode;
     
-    // Update UI
     btnAuto.classList.toggle('active', mode === 'auto');
     btnMax.classList.toggle('active', mode === 'max');
     btnCustom.classList.toggle('active', mode === 'custom');
     
-    // Save to localStorage
     localStorage.setItem('fanMode', mode);
     
     const isCustom = mode === 'custom';
@@ -60,7 +56,6 @@ async function applyCustomSpeeds() {
   }
 }
 
-// Event Listeners
 btnAuto.addEventListener('click', () => setMode('auto'));
 btnMax.addEventListener('click', () => setMode('max'));
 btnCustom.addEventListener('click', () => setMode('custom'));
@@ -104,13 +99,11 @@ async function restoreSavedState() {
       await applyCustomSpeeds();
     }
   } else {
-    // Default to auto if no saved state
     await setMode('auto');
   }
 }
 restoreSavedState();
 
-// Window Controls Event Listeners
 document.getElementById('win-minimize').addEventListener('click', () => appWindow.minimize());
 document.getElementById('win-close').addEventListener('click', () => appWindow.close());
 
@@ -158,18 +151,10 @@ async function updateTelemetry() {
     document.querySelectorAll('.text-cpu-rpm').forEach(el => el.innerText = cpuRpm);
     document.querySelectorAll('.text-gpu-rpm').forEach(el => el.innerText = gpuRpm);
     
-    // Update SVG rings:
-    // stroke-dashoffset=CIRC means fully hidden (empty ring at 0);
-    // stroke-dashoffset=0 means fully visible ring (full at max).
-    // So offset = CIRC - ((value / max) * CIRC).
-    //
-    // Exact circumference for r=42: 2 * Math.PI * 42 ≈ 263.8938
-    // Using the computed value avoids the ~0.006px gap at full fill that a
-    // hardcoded 263.9 would produce.
+    // Calculate SVG stroke-dashoffset using computed circumference.
     const CIRC = 2 * Math.PI * 42;
 
-    // Max observed RPM on Acer Nitro hardware. Fan curves above this value
-    // are clamped so the ring fill never visually overflows.
+    // Clamp RPM ring fill to hardware limit (6000 RPM).
     const MAX_RPM = 6000;
 
     const cpuRing = document.getElementById('gov-cpu-temp-ring');
@@ -217,9 +202,7 @@ async function updateTelemetry() {
   }
 }
 
-// Start polling every 2 seconds.
-// Store the interval ID so we can clear it when the window is destroyed.
-// Without this, a recreated WebView would accumulate multiple concurrent intervals.
+// Poll telemetry every 2s, clearing interval on unload to avoid leaks.
 let telemetryIntervalId = setInterval(updateTelemetry, 2000);
 updateTelemetry();
 
@@ -227,10 +210,7 @@ window.addEventListener('unload', () => {
   clearInterval(telemetryIntervalId);
 });
 
-// Dependency Check
-// check_dependencies returns [acpi_ok, wmi_ok]:
-//   acpi_ok — /proc/acpi/call is writable (acpi_call loaded + permissions set)
-//   wmi_ok  — the Acer WMID WMI path responds to a real probe call
+// Check if /proc/acpi/call is writable and WMI responds to probe.
 async function checkDeps() {
   const [acpiOk, wmiOk] = await invoke('check_dependencies');
   if (!acpiOk || !wmiOk) {
@@ -275,13 +255,7 @@ async function checkDeps() {
 }
 checkDeps();
 
-// ==========================================
-// NAVIGATION & RGB LOGIC
-// ==========================================
-
-// Nav Tab Switching
-// Uses <li> elements with role="button" and tabindex="0" (set in HTML).
-// Both click and keydown (Enter/Space) are handled so keyboard users can navigate.
+// Navigation & RGB tab switching (supporting keyboard accessibility)
 function activateNavItem(item) {
   document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
   item.classList.add('active');
@@ -300,16 +274,12 @@ document.querySelectorAll('.nav-item').forEach(item => {
   });
 });
 
-// RGB State
 let activeZone = 1;
 let currentRgbMode = 0;
 let currentRgbSpeed = 5;
 let currentBrightness = 80;
 
-// Initialize WMI RGB
 invoke('init_rgb').catch(console.error);
-
-// Parse colors to r, g, b components
 function parseColor(colorStr) {
     if (!colorStr) return null;
     let match = colorStr.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
@@ -327,16 +297,12 @@ function parseColor(colorStr) {
     return null;
 }
 
-// Zone selector
-// .kb-zone elements have role="button" and tabindex="0" (set in HTML).
 const zoneElements = document.querySelectorAll('.kb-zone');
 function activateZone(z) {
   zoneElements.forEach(el => el.classList.remove('selected'));
   z.classList.add('selected');
   activeZone = parseInt(z.getAttribute('data-zone'));
   document.querySelector('.editor-title').innerText = `Zone ${activeZone} Illumination`;
-
-  // Highlight the active color for this zone in the palette
   const currentGlow = z.style.getPropertyValue('--zone-glow') || window.getComputedStyle(z).getPropertyValue('--zone-glow').trim();
   if (currentGlow) {
       const parsedGlow = parseColor(currentGlow);
@@ -363,8 +329,6 @@ zoneElements.forEach(z => {
   });
 });
 
-// Color Palette
-// .palette-color elements have role="button" and tabindex="0" (set in HTML).
 const paletteColors = document.querySelectorAll('.palette-color');
 async function activatePaletteColor(colorEl) {
   paletteColors.forEach(el => el.classList.remove('selected'));
@@ -385,10 +349,9 @@ async function activatePaletteColor(colorEl) {
       if (activeZoneEl) {
         activeZoneEl.style.setProperty('--zone-glow', bg);
       }
-      // Save to localStorage to persist state across refreshes
       localStorage.setItem(`rgbZoneColor_${activeZone}`, bg);
 
-      if (currentRgbMode === 0) { // Re-apply static settings to push to hardware
+      if (currentRgbMode === 0) {
         await applyRgb();
       }
     } catch (e) {
@@ -407,8 +370,6 @@ paletteColors.forEach(colorEl => {
   });
 });
 
-// Preset buttons
-// Preset buttons are <button> elements so Enter/Space are handled natively by the browser.
 const presetBtns = document.querySelectorAll('.preset-btn');
 presetBtns.forEach(btn => {
   btn.addEventListener('click', async () => {
@@ -423,7 +384,6 @@ presetBtns.forEach(btn => {
 
     localStorage.setItem('rgbMode', preset);
 
-    // Disable speed slider for static color
     const speedGroup = document.querySelector('.slider-speed').closest('.slider-group');
     const isStatic = (preset === 'static');
     speedGroup.classList.toggle('disabled', isStatic);
@@ -433,21 +393,18 @@ presetBtns.forEach(btn => {
   });
 });
 
-// Speed helpers
 function speedFromIndex(val) {
     if (val === 1) return 1;
     if (val === 3) return 9;
     return 5;
 }
 function speedLabel(val) {
-    // Clamp out-of-range values (e.g. a corrupted localStorage entry of 0 or 4)
-    // so we never render "undefined" in the UI. 1=Slow, 3=Fast, anything else=Medium.
+    // Clamp speed index to prevent invalid text in UI.
     if (val === 1) return 'Slow';
     if (val === 3) return 'Fast';
     return 'Medium';
 }
 
-// Sliders
 const sliderBrightness = document.querySelector('.slider-brightness');
 const valBrightness = document.querySelector('.val-brightness');
 sliderBrightness.addEventListener('change', async (e) => {
@@ -481,21 +438,17 @@ async function applyRgb() {
     }
 }
 
-// Initialize UI state on load
 async function restoreRgbState() {
     const savedMode = localStorage.getItem('rgbMode');
     const savedBrightness = localStorage.getItem('rgbBrightness');
     const savedSpeedIndex = localStorage.getItem('rgbSpeedIndex');
     
-    // Default fallback colors for zones if not saved (Hardware defaults)
     const defaultColors = {
-        1: 'rgb(255, 0, 0)',    // Red
-        2: 'rgb(0, 255, 0)',    // Green
-        3: 'rgb(0, 0, 255)',    // Blue
-        4: 'rgb(255, 255, 0)'   // Yellow
+        1: 'rgb(255, 0, 0)',
+        2: 'rgb(0, 255, 0)',
+        3: 'rgb(0, 0, 255)',
+        4: 'rgb(255, 255, 0)'
     };
-
-    // Restore and apply zone colors to hardware & UI on startup
     for (let z = 1; z <= 4; z++) {
         const savedColor = localStorage.getItem(`rgbZoneColor_${z}`) || defaultColors[z];
         const parsed = parseColor(savedColor);
@@ -527,7 +480,6 @@ async function restoreRgbState() {
     }
     
     if (savedMode) {
-        // Trigger preset click logic
         const targetBtn = document.querySelector(`.preset-btn[data-preset="${savedMode}"]`);
         if (targetBtn) {
             targetBtn.click();
@@ -541,10 +493,7 @@ async function restoreRgbState() {
         }
     }
 
-    // Apply overall settings (mode, speed, brightness)
     await applyRgb();
-
-    // Select the default active zone (Zone 1) to update the palette selection UI
     const defaultZoneEl = document.querySelector(`.kb-zone-${activeZone}`);
     if (defaultZoneEl) {
         defaultZoneEl.click();

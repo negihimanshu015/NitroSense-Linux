@@ -1,7 +1,5 @@
 #!/bin/bash
-# Install script to grant the current user group-level write access to /proc/acpi/call
-# through a dedicated 'nitrosense' group rather than making the file world-writable (0666).
-# This is required for NitroSense-Linux to control fans without sudo.
+# Setup script to grant the user group-level write access to /proc/acpi/call without sudo.
 
 if [ "$EUID" -ne 0 ]; then
   echo "Please run this script with sudo:"
@@ -9,9 +7,7 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# ── Pre-flight: verify acpi_call is installed ────────────────────────────────
-# acpi_call is an out-of-tree module; it must be installed before this script
-# can set up permissions for it. The package name differs by distro.
+# Pre-flight check: Verify acpi_call is installed.
 if ! modinfo acpi_call &>/dev/null 2>&1; then
   echo ""
   echo "ERROR: The 'acpi_call' kernel module is not installed."
@@ -43,7 +39,7 @@ if ! modinfo acpi_call &>/dev/null 2>&1; then
   exit 1
 fi
 
-# Determine the real user who invoked sudo (so we don't add root to the group)
+# Get real user (avoid adding root to nitrosense group).
 REAL_USER="${SUDO_USER:-$USER}"
 
 echo "Creating 'nitrosense' group (if it doesn't already exist)..."
@@ -56,8 +52,7 @@ usermod -aG nitrosense "$REAL_USER"
 
 echo "Installing udev rule for /proc/acpi/call..."
 
-# Create a systemd-tmpfiles rule to set 0660 permissions for /proc/acpi/call on boot.
-# Udev doesn't manage /proc, so systemd-tmpfiles is the correct Linux way to persist permissions here.
+# Persist /proc/acpi/call permissions using systemd-tmpfiles (udev doesn't manage /proc).
 ACPI_CONF="/etc/tmpfiles.d/acpi_call.conf"
 if [ -f "$ACPI_CONF" ]; then
   echo "WARNING: $ACPI_CONF already exists. Skipping to avoid overwriting your configuration."
@@ -80,10 +75,7 @@ acer_wmi
 EOF
 fi
 
-# Apply it immediately
-# Apply the tmpfiles rule immediately if systemd-tmpfiles is available.
-# On non-systemd distros (Void, Devuan, Gentoo/OpenRC) this tool is absent;
-# in that case the permissions will take effect after the next reboot.
+# Apply tmpfiles rule immediately or fallback if on a non-systemd distro.
 if command -v systemd-tmpfiles &>/dev/null; then
   systemd-tmpfiles --create /etc/tmpfiles.d/acpi_call.conf
 else
@@ -92,7 +84,7 @@ else
   echo "      Applying permissions manually for this session..."
 fi
 
-# Load modules if not already loaded and apply permissions for this session
+# Load kernel modules and apply session permissions.
 modprobe acer_wmi 2>/dev/null
 modprobe acpi_call 2>/dev/null
 if [ -f /proc/acpi/call ]; then
@@ -103,6 +95,9 @@ fi
 echo ""
 echo "Success! The acpi_call permissions have been configured."
 echo ""
-echo "IMPORTANT: You must log out and log back in (or run 'newgrp nitrosense')"
-echo "for the group membership to take effect for '$REAL_USER'."
-echo "After that, NitroSense-Linux will run without sudo."
+echo "NOTE: Current terminal will not see group membership changes until a new login session."
+echo ""
+echo "To start using NitroSense-Linux without sudo, do ONE of the following:"
+echo "  • Log out and log back in  (recommended)"
+echo "  • Run 'newgrp nitrosense'  (applies to current terminal only)"
+echo ""
