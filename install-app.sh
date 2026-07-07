@@ -52,6 +52,22 @@ Keywords=fan;cooling;rgb;nitro;acer;laptop;
 StartupWMClass=nitrosense-linux
 EOF
 
+# Write autostart entry
+AUTOSTART_DIR="$HOME/.config/autostart"
+INSTALL_AUTOSTART="$AUTOSTART_DIR/nitrosense-apply.desktop"
+mkdir -p "$AUTOSTART_DIR"
+echo "Installing autostart entry → $INSTALL_AUTOSTART"
+cat > "$INSTALL_AUTOSTART" << EOF
+[Desktop Entry]
+Type=Application
+Name=NitroSense Settings Apply
+Comment=Apply saved fan and RGB settings on user login
+Exec=$INSTALL_BIN --apply
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+EOF
+
 # Refresh desktop database
 if command -v update-desktop-database &>/dev/null; then
   update-desktop-database "$HOME/.local/share/applications/"

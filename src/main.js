@@ -10,6 +10,17 @@ const { getCurrentWindow } = window.__TAURI__.window;
 const appWindow = getCurrentWindow();
 
 let currentMode = 'auto';
+let appConfig = null;
+let isInitializing = false;
+
+async function saveConfig() {
+  if (isInitializing) return;
+  try {
+    await invoke('save_config', { config: appConfig });
+  } catch (e) {
+    console.error('Failed to save config:', e);
+  }
+}
 
 const btnAuto = document.getElementById('btn-auto');
 const btnMax = document.getElementById('btn-max');
@@ -20,6 +31,7 @@ const cpuSlider = document.getElementById('cpu-slider');
 const gpuSlider = document.getElementById('gpu-slider');
 const cpuVal = document.getElementById('cpu-val');
 const gpuVal = document.getElementById('gpu-val');
+
 async function setMode(mode) {
   try {
     await invoke('set_fan_mode', { mode });
@@ -29,7 +41,10 @@ async function setMode(mode) {
     btnMax.classList.toggle('active', mode === 'max');
     btnCustom.classList.toggle('active', mode === 'custom');
     
-    localStorage.setItem('fanMode', mode);
+    if (appConfig) {
+      appConfig.fan_mode = mode;
+      await saveConfig();
+    }
     
     const isCustom = mode === 'custom';
     customControls.classList.toggle('disabled', !isCustom);
@@ -49,8 +64,11 @@ async function applyCustomSpeeds() {
   
   try {
     await invoke('set_fan_speed', { cpuPercent, gpuPercent });
-    localStorage.setItem('cpuPercent', cpuPercent);
-    localStorage.setItem('gpuPercent', gpuPercent);
+    if (appConfig) {
+      appConfig.cpu_percent = cpuPercent;
+      appConfig.gpu_percent = gpuPercent;
+      await saveConfig();
+    }
   } catch (error) {
     console.error('Failed to apply custom speeds:', error);
   }
@@ -76,33 +94,6 @@ cpuSlider.addEventListener('input', (e) => handleSliderInput(e, true));
 gpuSlider.addEventListener('input', (e) => handleSliderInput(e, false));
 cpuSlider.addEventListener('change', applyCustomSpeeds);
 gpuSlider.addEventListener('change', applyCustomSpeeds);
-
-// Restore saved states on startup
-async function restoreSavedState() {
-  const savedCpuPercent = localStorage.getItem('cpuPercent');
-  const savedGpuPercent = localStorage.getItem('gpuPercent');
-  
-  if (savedCpuPercent) {
-    cpuSlider.value = savedCpuPercent;
-    cpuVal.innerText = `${savedCpuPercent}%`;
-  }
-  if (savedGpuPercent) {
-    gpuSlider.value = savedGpuPercent;
-    gpuVal.innerText = `${savedGpuPercent}%`;
-  }
-
-  const savedMode = localStorage.getItem('fanMode');
-  if (savedMode) {
-    await setMode(savedMode);
-    
-    if (savedMode === 'custom') {
-      await applyCustomSpeeds();
-    }
-  } else {
-    await setMode('auto');
-  }
-}
-restoreSavedState();
 
 document.getElementById('win-minimize').addEventListener('click', () => appWindow.minimize());
 document.getElementById('win-close').addEventListener('click', () => appWindow.close());
@@ -349,7 +340,10 @@ async function activatePaletteColor(colorEl) {
       if (activeZoneEl) {
         activeZoneEl.style.setProperty('--zone-glow', bg);
       }
-      localStorage.setItem(`rgbZoneColor_${activeZone}`, bg);
+      if (appConfig) {
+        appConfig[`rgb_zone_color_${activeZone}`] = bg;
+        await saveConfig();
+      }
 
       if (currentRgbMode === 0) {
         await applyRgb();
@@ -382,7 +376,10 @@ presetBtns.forEach(btn => {
     else if (preset === 'neon') currentRgbMode = 2;
     else if (preset === 'wave') currentRgbMode = 3;
 
-    localStorage.setItem('rgbMode', preset);
+    if (appConfig) {
+      appConfig.rgb_mode = preset;
+      await saveConfig();
+    }
 
     const speedGroup = document.querySelector('.slider-speed').closest('.slider-group');
     const isStatic = (preset === 'static');
@@ -409,7 +406,10 @@ const sliderBrightness = document.querySelector('.slider-brightness');
 const valBrightness = document.querySelector('.val-brightness');
 sliderBrightness.addEventListener('change', async (e) => {
     currentBrightness = parseInt(e.target.value);
-    localStorage.setItem('rgbBrightness', currentBrightness);
+    if (appConfig) {
+      appConfig.rgb_brightness = currentBrightness;
+      await saveConfig();
+    }
     await applyRgb();
 });
 sliderBrightness.addEventListener('input', (e) => valBrightness.innerText = `${e.target.value}%`);
@@ -419,7 +419,10 @@ const valSpeed = document.querySelector('.val-speed');
 sliderSpeed.addEventListener('change', async (e) => {
     const val = parseInt(e.target.value);
     currentRgbSpeed = speedFromIndex(val);
-    localStorage.setItem('rgbSpeedIndex', val);
+    if (appConfig) {
+      appConfig.rgb_speed_index = val;
+      await saveConfig();
+    }
     if (currentRgbMode !== 0) await applyRgb();
 });
 sliderSpeed.addEventListener('input', (e) => {
@@ -438,19 +441,40 @@ async function applyRgb() {
     }
 }
 
-async function restoreRgbState() {
-    const savedMode = localStorage.getItem('rgbMode');
-    const savedBrightness = localStorage.getItem('rgbBrightness');
-    const savedSpeedIndex = localStorage.getItem('rgbSpeedIndex');
-    
-    const defaultColors = {
-        1: 'rgb(255, 0, 0)',
-        2: 'rgb(0, 255, 0)',
-        3: 'rgb(0, 0, 255)',
-        4: 'rgb(255, 255, 0)'
-    };
+async function initApp() {
+    isInitializing = true;
+    try {
+        appConfig = await invoke('load_config');
+    } catch (e) {
+        console.error("Failed to load config, using fallback defaults:", e);
+        appConfig = {
+            fan_mode: "auto",
+            cpu_percent: 50,
+            gpu_percent: 50,
+            rgb_mode: "static",
+            rgb_brightness: 80,
+            rgb_speed_index: 2,
+            rgb_zone_color_1: "rgb(255, 0, 0)",
+            rgb_zone_color_2: "rgb(0, 255, 0)",
+            rgb_zone_color_3: "rgb(0, 0, 255)",
+            rgb_zone_color_4: "rgb(255, 255, 0)"
+        };
+    }
+
+    // Restore Fan State
+    cpuSlider.value = appConfig.cpu_percent;
+    cpuVal.innerText = `${appConfig.cpu_percent}%`;
+    gpuSlider.value = appConfig.gpu_percent;
+    gpuVal.innerText = `${appConfig.gpu_percent}%`;
+
+    await setMode(appConfig.fan_mode);
+    if (appConfig.fan_mode === 'custom') {
+        await applyCustomSpeeds();
+    }
+
+    // Restore RGB State
     for (let z = 1; z <= 4; z++) {
-        const savedColor = localStorage.getItem(`rgbZoneColor_${z}`) || defaultColors[z];
+        const savedColor = appConfig[`rgb_zone_color_${z}`];
         const parsed = parseColor(savedColor);
         if (parsed) {
             const { r, g, b } = parsed;
@@ -466,23 +490,21 @@ async function restoreRgbState() {
         }
     }
 
-    if (savedBrightness) {
-        currentBrightness = parseInt(savedBrightness);
-        sliderBrightness.value = currentBrightness;
-        valBrightness.innerText = `${currentBrightness}%`;
-    }
-    
-    if (savedSpeedIndex) {
-        const val = parseInt(savedSpeedIndex);
-        sliderSpeed.value = val;
-        valSpeed.innerText = speedLabel(val);
-        currentRgbSpeed = speedFromIndex(val);
-    }
-    
+    currentBrightness = appConfig.rgb_brightness;
+    sliderBrightness.value = currentBrightness;
+    valBrightness.innerText = `${currentBrightness}%`;
+
+    sliderSpeed.value = appConfig.rgb_speed_index;
+    valSpeed.innerText = speedLabel(appConfig.rgb_speed_index);
+    currentRgbSpeed = speedFromIndex(appConfig.rgb_speed_index);
+
+    const savedMode = appConfig.rgb_mode;
+    let clicked = false;
     if (savedMode) {
         const targetBtn = document.querySelector(`.preset-btn[data-preset="${savedMode}"]`);
         if (targetBtn) {
             targetBtn.click();
+            clicked = true;
         }
     } else {
         const activePreset = document.querySelector('.preset-btn.active');
@@ -493,10 +515,14 @@ async function restoreRgbState() {
         }
     }
 
-    await applyRgb();
+    if (!clicked) {
+        await applyRgb();
+    }
+    
     const defaultZoneEl = document.querySelector(`.kb-zone-${activeZone}`);
     if (defaultZoneEl) {
         defaultZoneEl.click();
     }
+    isInitializing = false;
 }
-restoreRgbState();
+initApp();
