@@ -13,13 +13,17 @@ let currentMode = 'auto';
 let appConfig = null;
 let isInitializing = false;
 
-async function saveConfig() {
+let saveTimeout;
+function saveConfig() {
   if (isInitializing) return;
-  try {
-    await invoke('save_config', { config: appConfig });
-  } catch (e) {
-    console.error('Failed to save config:', e);
-  }
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(async () => {
+    try {
+      await invoke('save_config', { config: appConfig });
+    } catch (e) {
+      console.error('Failed to save config:', e);
+    }
+  }, 500);
 }
 
 const btnAuto = document.getElementById('btn-auto');
@@ -92,8 +96,7 @@ function handleSliderInput(e, isCpu) {
 
 cpuSlider.addEventListener('input', (e) => handleSliderInput(e, true));
 gpuSlider.addEventListener('input', (e) => handleSliderInput(e, false));
-cpuSlider.addEventListener('change', applyCustomSpeeds);
-gpuSlider.addEventListener('change', applyCustomSpeeds);
+
 
 document.getElementById('win-minimize').addEventListener('click', () => appWindow.minimize());
 document.getElementById('win-close').addEventListener('click', () => appWindow.close());
@@ -193,12 +196,12 @@ async function updateTelemetry() {
   }
 }
 
-// Poll telemetry every 2s, clearing interval on unload to avoid leaks.
-let telemetryIntervalId = setInterval(updateTelemetry, 2000);
-updateTelemetry();
+let telemetryIntervalId;
 
 window.addEventListener('unload', () => {
-  clearInterval(telemetryIntervalId);
+  if (telemetryIntervalId) {
+    clearInterval(telemetryIntervalId);
+  }
 });
 
 // Check if /proc/acpi/call is writable and WMI responds to probe.
@@ -242,9 +245,10 @@ async function checkDeps() {
       </div>
     `;
     document.body.appendChild(overlay);
+    return false;
   }
+  return true;
 }
-checkDeps();
 
 // Navigation & RGB tab switching (supporting keyboard accessibility)
 function activateNavItem(item) {
@@ -267,10 +271,8 @@ document.querySelectorAll('.nav-item').forEach(item => {
 
 let activeZone = 1;
 let currentRgbMode = 0;
-let currentRgbSpeed = 5;
+let currentRgbSpeed = 2;
 let currentBrightness = 80;
-
-invoke('init_rgb').catch(console.error);
 function parseColor(colorStr) {
     if (!colorStr) return null;
     let match = colorStr.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
@@ -390,11 +392,7 @@ presetBtns.forEach(btn => {
   });
 });
 
-function speedFromIndex(val) {
-    if (val === 1) return 1;
-    if (val === 3) return 9;
-    return 5;
-}
+
 function speedLabel(val) {
     // Clamp speed index to prevent invalid text in UI.
     if (val === 1) return 'Slow';
@@ -418,7 +416,7 @@ const sliderSpeed = document.querySelector('.slider-speed');
 const valSpeed = document.querySelector('.val-speed');
 sliderSpeed.addEventListener('change', async (e) => {
     const val = parseInt(e.target.value);
-    currentRgbSpeed = speedFromIndex(val);
+    currentRgbSpeed = val;
     if (appConfig) {
       appConfig.rgb_speed_index = val;
       await saveConfig();
@@ -444,85 +442,106 @@ async function applyRgb() {
 async function initApp() {
     isInitializing = true;
     try {
-        appConfig = await invoke('load_config');
-    } catch (e) {
-        console.error("Failed to load config, using fallback defaults:", e);
-        appConfig = {
-            fan_mode: "auto",
-            cpu_percent: 50,
-            gpu_percent: 50,
-            rgb_mode: "static",
-            rgb_brightness: 80,
-            rgb_speed_index: 2,
-            rgb_zone_color_1: "rgb(255, 0, 0)",
-            rgb_zone_color_2: "rgb(0, 255, 0)",
-            rgb_zone_color_3: "rgb(0, 0, 255)",
-            rgb_zone_color_4: "rgb(255, 255, 0)"
-        };
-    }
+        try {
+            await invoke('init_rgb');
+        } catch (e) {
+            console.error("Failed to initialize RGB hardware:", e);
+        }
 
-    // Restore Fan State
-    cpuSlider.value = appConfig.cpu_percent;
-    cpuVal.innerText = `${appConfig.cpu_percent}%`;
-    gpuSlider.value = appConfig.gpu_percent;
-    gpuVal.innerText = `${appConfig.gpu_percent}%`;
+        try {
+            appConfig = await invoke('load_config');
+        } catch (e) {
+            console.error("Failed to load config, using fallback defaults:", e);
+            appConfig = {
+                fan_mode: "auto",
+                cpu_percent: 50,
+                gpu_percent: 50,
+                rgb_mode: "static",
+                rgb_brightness: 80,
+                rgb_speed_index: 2,
+                rgb_zone_color_1: "rgb(255, 0, 0)",
+                rgb_zone_color_2: "rgb(0, 255, 0)",
+                rgb_zone_color_3: "rgb(0, 0, 255)",
+                rgb_zone_color_4: "rgb(255, 255, 0)"
+            };
+        }
 
-    await setMode(appConfig.fan_mode);
-    if (appConfig.fan_mode === 'custom') {
-        await applyCustomSpeeds();
-    }
+        // Restore Fan State
+        cpuSlider.value = appConfig.cpu_percent;
+        cpuVal.innerText = `${appConfig.cpu_percent}%`;
+        gpuSlider.value = appConfig.gpu_percent;
+        gpuVal.innerText = `${appConfig.gpu_percent}%`;
 
-    // Restore RGB State
-    for (let z = 1; z <= 4; z++) {
-        const savedColor = appConfig[`rgb_zone_color_${z}`];
-        const parsed = parseColor(savedColor);
-        if (parsed) {
-            const { r, g, b } = parsed;
-            try {
-                await invoke('set_rgb_zone', { zone: z, r, g, b });
-                const zoneEl = document.querySelector(`.kb-zone-${z}`);
-                if (zoneEl) {
-                    zoneEl.style.setProperty('--zone-glow', savedColor);
+        await setMode(appConfig.fan_mode);
+        if (appConfig.fan_mode === 'custom') {
+            await applyCustomSpeeds();
+        }
+
+        // Restore RGB State
+        for (let z = 1; z <= 4; z++) {
+            const savedColor = appConfig[`rgb_zone_color_${z}`];
+            const parsed = parseColor(savedColor);
+            if (parsed) {
+                const { r, g, b } = parsed;
+                try {
+                    await invoke('set_rgb_zone', { zone: z, r, g, b });
+                    const zoneEl = document.querySelector(`.kb-zone-${z}`);
+                    if (zoneEl) {
+                        zoneEl.style.setProperty('--zone-glow', savedColor);
+                    }
+                } catch (e) {
+                    console.error(`Failed to initialize zone ${z}:`, e);
                 }
-            } catch (e) {
-                console.error(`Failed to initialize zone ${z}:`, e);
             }
         }
-    }
 
-    currentBrightness = appConfig.rgb_brightness;
-    sliderBrightness.value = currentBrightness;
-    valBrightness.innerText = `${currentBrightness}%`;
+        currentBrightness = appConfig.rgb_brightness;
+        sliderBrightness.value = currentBrightness;
+        valBrightness.innerText = `${currentBrightness}%`;
 
-    sliderSpeed.value = appConfig.rgb_speed_index;
-    valSpeed.innerText = speedLabel(appConfig.rgb_speed_index);
-    currentRgbSpeed = speedFromIndex(appConfig.rgb_speed_index);
+        sliderSpeed.value = appConfig.rgb_speed_index;
+        valSpeed.innerText = speedLabel(appConfig.rgb_speed_index);
+        currentRgbSpeed = appConfig.rgb_speed_index;
 
-    const savedMode = appConfig.rgb_mode;
-    let clicked = false;
-    if (savedMode) {
-        const targetBtn = document.querySelector(`.preset-btn[data-preset="${savedMode}"]`);
-        if (targetBtn) {
-            targetBtn.click();
-            clicked = true;
+        const savedMode = appConfig.rgb_mode;
+        let clicked = false;
+        if (savedMode) {
+            const targetBtn = document.querySelector(`.preset-btn[data-preset="${savedMode}"]`);
+            if (targetBtn) {
+                targetBtn.click();
+                clicked = true;
+            }
+        } else {
+            const activePreset = document.querySelector('.preset-btn.active');
+            if (activePreset && activePreset.getAttribute('data-preset') === 'static') {
+                const initSpeedGroup = document.querySelector('.slider-speed').closest('.slider-group');
+                initSpeedGroup.classList.add('disabled');
+                document.querySelector('.slider-speed').disabled = true;
+            }
         }
-    } else {
-        const activePreset = document.querySelector('.preset-btn.active');
-        if (activePreset && activePreset.getAttribute('data-preset') === 'static') {
-            const initSpeedGroup = document.querySelector('.slider-speed').closest('.slider-group');
-            initSpeedGroup.classList.add('disabled');
-            document.querySelector('.slider-speed').disabled = true;
-        }
-    }
 
-    if (!clicked) {
-        await applyRgb();
+        if (!clicked) {
+            await applyRgb();
+        }
+        
+        const defaultZoneEl = document.querySelector(`.kb-zone-${activeZone}`);
+        if (defaultZoneEl) {
+            defaultZoneEl.click();
+        }
+    } finally {
+        isInitializing = false;
     }
-    
-    const defaultZoneEl = document.querySelector(`.kb-zone-${activeZone}`);
-    if (defaultZoneEl) {
-        defaultZoneEl.click();
-    }
-    isInitializing = false;
 }
-initApp();
+
+async function startApp() {
+    const depsOk = await checkDeps();
+    if (!depsOk) return;
+
+    await initApp();
+
+    // Start telemetry polling only after initialization is complete
+    updateTelemetry();
+    telemetryIntervalId = setInterval(updateTelemetry, 2000);
+}
+
+startApp().catch(console.error);

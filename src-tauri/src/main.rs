@@ -1,5 +1,4 @@
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 mod wmi;
 mod config;
 use wmi::{FanBehavior, FanGroup};
@@ -48,59 +47,65 @@ fn get_telemetry() -> Result<(u32, u32, u32, u32), String> {
 
 #[tauri::command]
 fn get_system_status(state: State<AppState>) -> Result<(f32, f32, f32), String> {
-    // Recover from Mutex poisoning if a previous thread panicked.
-    let mut sys = state.sys.lock().unwrap_or_else(|poisoned| {
-        eprintln!("[nitrosense] AppState Mutex was poisoned — recovering");
-        poisoned.into_inner()
-    });
+    // Check if GPU cache needs refresh under a brief lock scope
+    let needs_refresh = {
+        let cache = state.nvidia_cache.lock().unwrap_or_else(|poisoned| {
+            eprintln!("[nitrosense] nvidia_cache Mutex was poisoned — recovering");
+            poisoned.into_inner()
+        });
+        cache.last_updated
+            .map(|t| t.elapsed() >= NVIDIA_CACHE_TTL)
+            .unwrap_or(true)
+    };
 
-    sys.refresh_cpu();
-    sys.refresh_memory();
-    let cpu_usage = sys.global_cpu_info().cpu_usage();
-    let ram_usage = (sys.used_memory() as f32 / sys.total_memory() as f32) * 100.0;
-
-    // Cache nvidia-smi results to minimize subprocess execution overhead.
-    let mut cache = state.nvidia_cache.lock().unwrap_or_else(|poisoned| {
-        eprintln!("[nitrosense] nvidia_cache Mutex was poisoned — recovering");
-        poisoned.into_inner()
-    });
-
-    let needs_refresh = cache.last_updated
-        .map(|t| t.elapsed() >= NVIDIA_CACHE_TTL)
-        .unwrap_or(true);
-
+    let mut gpu_util = 0.0;
     if needs_refresh {
-        if let Ok(output) = std::process::Command::new("nvidia-smi")
-            .arg("--query-gpu=utilization.gpu")
-            .arg("--format=csv,noheader,nounits")
-            .output()
-        {
-            if output.status.success() {
-                if let Ok(val_str) = String::from_utf8(output.stdout) {
-                    if let Ok(val) = val_str.trim().parse::<f32>() {
-                        cache.value = val;
-                        cache.last_updated = Some(Instant::now());
-                    }
-                }
+        // Run the subprocess query without holding any state mutex locks
+        if let Some(stdout) = wmi::run_nvidia_smi_with_timeout(
+            &["--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+            Duration::from_secs(2),
+        ) {
+            if let Ok(val) = stdout.trim().parse::<f32>() {
+                gpu_util = val;
+                let mut cache = state.nvidia_cache.lock().unwrap_or_else(|poisoned| {
+                    poisoned.into_inner()
+                });
+                cache.value = val;
+                cache.last_updated = Some(Instant::now());
             }
         }
+    } else {
+        let cache = state.nvidia_cache.lock().unwrap_or_else(|poisoned| {
+            poisoned.into_inner()
+        });
+        gpu_util = cache.value;
     }
 
-    Ok((cpu_usage, ram_usage, cache.value))
+    // Run CPU and memory refresh under a separate brief lock scope
+    let (cpu_usage, ram_usage) = {
+        let mut sys = state.sys.lock().unwrap_or_else(|poisoned| {
+            eprintln!("[nitrosense] AppState Mutex was poisoned — recovering");
+            poisoned.into_inner()
+        });
+        sys.refresh_cpu();
+        sys.refresh_memory();
+        let cpu = sys.global_cpu_info().cpu_usage();
+        let ram = (sys.used_memory() as f32 / sys.total_memory() as f32) * 100.0;
+        (cpu, ram)
+    };
+
+    Ok((cpu_usage, ram_usage, gpu_util))
 }
 
 /// Check if the acpi_call module is loaded and the Acer WMI path is responding.
 #[tauri::command]
 fn check_dependencies() -> (bool, bool) {
-    let acpi_ok = std::fs::OpenOptions::new()
-        .write(true)
-        .open("/proc/acpi/call")
-        .is_ok();
-
-    // Probe the WMI path if /proc/acpi/call is accessible to verify the path is functional.
-    let wmi_ok = acpi_ok && wmi::probe_wmi_path();
-
-    (acpi_ok, wmi_ok)
+    match wmi::probe_wmi_path() {
+        Ok(()) => (true, true),
+        Err(wmi::WmiError::AcpiCallOpenFailed(_)) => (false, false),
+        Err(wmi::WmiError::AcpiCallFailed(_)) => (true, false),
+        Err(wmi::WmiError::Other(_)) => (true, false),
+    }
 }
 
 #[tauri::command]
@@ -146,6 +151,14 @@ fn main() {
     sys.refresh_cpu();
 
     tauri::Builder::default()
+        .on_window_event(|_window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                println!("[nitrosense-linux] Close requested, resetting fan behavior to Auto for safety");
+                if let Err(e) = wmi::set_fan_behavior(FanBehavior::Auto) {
+                    eprintln!("[nitrosense-linux] WARNING: Failed to reset fans on close: {}", e);
+                }
+            }
+        })
         .manage(AppState {
             sys: Mutex::new(sys),
             nvidia_cache: Mutex::new(NvidiaCache {
