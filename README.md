@@ -83,10 +83,10 @@ This project exposes the ACPI/WMI hardware interface through a native Linux GUI.
 
 ### Step 1 — Install `acpi_call`
 
-**Fedora** (via RPM Fusion):
+**Fedora** (via COPR):
 ```bash
-sudo dnf install https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
-sudo dnf install akmod-acpi_call
+sudo dnf copr enable rhea/acpi_call
+sudo dnf install acpi_call-dkms
 ```
 
 ---

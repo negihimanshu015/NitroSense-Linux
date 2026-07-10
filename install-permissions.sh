@@ -16,9 +16,9 @@ if ! modinfo acpi_call &>/dev/null 2>&1; then
   echo "Install it using your distro's package manager:"
   echo ""
   if command -v dnf &>/dev/null; then
-    echo "  Fedora (RPM Fusion required):"
-    echo "    sudo dnf install https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-\$(rpm -E %fedora).noarch.rpm"
-    echo "    sudo dnf install akmod-acpi_call"
+    echo "  Fedora (COPR required):"
+    echo "    sudo dnf copr enable rhea/acpi_call"
+    echo "    sudo dnf install acpi_call-dkms"
   elif command -v apt &>/dev/null; then
     echo "  Ubuntu / Debian:"
     echo "    sudo apt install acpi-call-dkms"
