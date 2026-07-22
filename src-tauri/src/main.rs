@@ -47,18 +47,19 @@ fn get_telemetry() -> Result<(u32, u32, u32, u32), String> {
 
 #[tauri::command]
 fn get_system_status(state: State<AppState>) -> Result<(f32, f32, f32), String> {
-    // Check if GPU cache needs refresh under a brief lock scope
-    let needs_refresh = {
+    // Check if GPU cache needs refresh and read last cached value under a brief lock scope
+    let (needs_refresh, cached_gpu) = {
         let cache = state.nvidia_cache.lock().unwrap_or_else(|poisoned| {
             eprintln!("[nitrosense] nvidia_cache Mutex was poisoned — recovering");
             poisoned.into_inner()
         });
-        cache.last_updated
+        let expired = cache.last_updated
             .map(|t| t.elapsed() >= NVIDIA_CACHE_TTL)
-            .unwrap_or(true)
+            .unwrap_or(true);
+        (expired, cache.value)
     };
 
-    let mut gpu_util = 0.0;
+    let mut gpu_util = cached_gpu;
     if needs_refresh {
         // Run the subprocess query without holding any state mutex locks
         if let Some(stdout) = wmi::run_nvidia_smi_with_timeout(
@@ -74,11 +75,6 @@ fn get_system_status(state: State<AppState>) -> Result<(f32, f32, f32), String> 
                 cache.last_updated = Some(Instant::now());
             }
         }
-    } else {
-        let cache = state.nvidia_cache.lock().unwrap_or_else(|poisoned| {
-            poisoned.into_inner()
-        });
-        gpu_util = cache.value;
     }
 
     // Run CPU and memory refresh under a separate brief lock scope
@@ -90,7 +86,12 @@ fn get_system_status(state: State<AppState>) -> Result<(f32, f32, f32), String> 
         sys.refresh_cpu();
         sys.refresh_memory();
         let cpu = sys.global_cpu_info().cpu_usage();
-        let ram = (sys.used_memory() as f32 / sys.total_memory() as f32) * 100.0;
+        let total_mem = sys.total_memory();
+        let ram = if total_mem > 0 {
+            (sys.used_memory() as f32 / total_mem as f32) * 100.0
+        } else {
+            0.0
+        };
         (cpu, ram)
     };
 

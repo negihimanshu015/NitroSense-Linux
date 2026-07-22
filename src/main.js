@@ -166,19 +166,22 @@ async function updateTelemetry() {
       const [cpuUsage, ramUsage, gpuUsage] = await invoke('get_system_status');
       
       const cpuUsageEls = document.querySelectorAll('.val-cpu-util');
-      const cpuUsageBars = document.querySelectorAll('#bar-cpu-util');
-      cpuUsageEls.forEach(el => el.innerText = `${cpuUsage.toFixed(1)}%`);
-      cpuUsageBars.forEach(el => el.style.width = `${cpuUsage}%`);
+      const cpuUsageBar = document.getElementById('bar-cpu-util');
+      const safeCpu = Math.min(Math.max(cpuUsage, 0), 100);
+      cpuUsageEls.forEach(el => el.innerText = `${safeCpu.toFixed(1)}%`);
+      if (cpuUsageBar) cpuUsageBar.style.width = `${safeCpu}%`;
 
       const ramUsageEls = document.querySelectorAll('.val-ram-util');
-      const ramUsageBars = document.querySelectorAll('#bar-ram-util');
-      ramUsageEls.forEach(el => el.innerText = `${ramUsage.toFixed(1)}%`);
-      ramUsageBars.forEach(el => el.style.width = `${ramUsage}%`);
+      const ramUsageBar = document.getElementById('bar-ram-util');
+      const safeRam = Math.min(Math.max(ramUsage, 0), 100);
+      ramUsageEls.forEach(el => el.innerText = `${safeRam.toFixed(1)}%`);
+      if (ramUsageBar) ramUsageBar.style.width = `${safeRam}%`;
       
       const gpuUsageEls = document.querySelectorAll('.val-gpu-util');
-      const gpuUsageBars = document.querySelectorAll('#bar-gpu-util');
-      gpuUsageEls.forEach(el => el.innerText = `${gpuUsage.toFixed(1)}%`);
-      gpuUsageBars.forEach(el => el.style.width = `${gpuUsage}%`);
+      const gpuUsageBar = document.getElementById('bar-gpu-util');
+      const safeGpu = Math.min(Math.max(gpuUsage, 0), 100);
+      gpuUsageEls.forEach(el => el.innerText = `${safeGpu.toFixed(1)}%`);
+      if (gpuUsageBar) gpuUsageBar.style.width = `${safeGpu}%`;
     } catch (e) {
       console.warn('System status error:', e);
     }
