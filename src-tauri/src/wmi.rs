@@ -1,6 +1,6 @@
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use std::path::PathBuf;
 use std::os::unix::io::AsRawFd;
 use std::time::Duration;
@@ -28,7 +28,7 @@ impl std::fmt::Display for WmiError {
 impl std::error::Error for WmiError {}
 
 static ACPI_MUTEX: Mutex<()> = Mutex::new(());
-static GPU_HWMON_PATH: OnceLock<PathBuf> = OnceLock::new();
+static GPU_HWMON_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 // WMI Buffer Protocol (WMBH 17-char hex buffer: "b" + 16 hex digits)
 // Opcode 0x0E (Fan Behavior): Byte[0]=0x09, Byte[1]=sub-mode, Byte[2]=flags (Auto: 04,10; Max: 08,20; Custom: 0C,30)
@@ -67,50 +67,68 @@ pub fn set_fan_speed(fan: FanGroup, percent: u8) -> Result<(), String> {
 }
 
 pub fn get_telemetry() -> Result<(u32, u32, u32, u32), String> {
-    let cpu_temp = read_sensor("01").map_err(|e| e.to_string())?;
-    let mut gpu_temp = read_sensor("0A").map_err(|e| e.to_string())?;
-    let cpu_rpm = read_sensor("02").map_err(|e| e.to_string())?;
-    let gpu_rpm = read_sensor("06").map_err(|e| e.to_string())?;
+    with_acpi_lock(|| {
+        let cpu_temp = read_sensor_raw("01")?;
+        let mut gpu_temp = read_sensor_raw("0A")?;
+        let cpu_rpm = read_sensor_raw("02")?;
+        let gpu_rpm = read_sensor_raw("06")?;
 
-    // Fallback to hwmon if GPU is in D3cold (EC returns 0 temp).
-    if gpu_temp == 0 {
-        gpu_temp = get_hwmon_gpu_temp();
-    }
+        // Fallback to hwmon if GPU is in D3cold (EC returns 0 temp).
+        if gpu_temp == 0 {
+            gpu_temp = get_hwmon_gpu_temp();
+        }
 
-    Ok((cpu_temp, gpu_temp, cpu_rpm, gpu_rpm))
+        Ok((cpu_temp, gpu_temp, cpu_rpm, gpu_rpm))
+    }).map_err(|e| e.to_string())
 }
 
 fn get_hwmon_gpu_temp() -> u32 {
     let mut highest_temp = 0u32;
 
     // 1. Try native Linux hwmon drivers using cached path.
-    let mut hwmon_path = GPU_HWMON_PATH.get().cloned();
+    let cached_path = {
+        let guard = GPU_HWMON_PATH.lock().unwrap_or_else(|p| p.into_inner());
+        guard.clone()
+    };
 
-    if hwmon_path.is_none() {
-        if let Ok(entries) = std::fs::read_dir("/sys/class/hwmon") {
-            for entry in entries.flatten() {
-                let name_path = entry.path().join("name");
-                if let Ok(name) = std::fs::read_to_string(&name_path) {
-                    let name = name.trim().to_lowercase();
-                    if name.contains("amdgpu") || name.contains("nouveau") || name.contains("nvidia") || name.contains("radeon") {
-                        let path = entry.path();
-                        let _ = GPU_HWMON_PATH.set(path.clone());
-                        hwmon_path = Some(path);
-                        break;
+    let hwmon_path = match cached_path {
+        Some(path) => Some(path),
+        None => {
+            let mut found_path = None;
+            if let Ok(entries) = std::fs::read_dir("/sys/class/hwmon") {
+                for entry in entries.flatten() {
+                    let name_path = entry.path().join("name");
+                    if let Ok(name) = std::fs::read_to_string(&name_path) {
+                        let name = name.trim().to_lowercase();
+                        if name.contains("amdgpu") || name.contains("nouveau") || name.contains("nvidia") || name.contains("radeon") {
+                            let path = entry.path();
+                            let mut guard = GPU_HWMON_PATH.lock().unwrap_or_else(|p| p.into_inner());
+                            *guard = Some(path.clone());
+                            found_path = Some(path);
+                            break;
+                        }
                     }
                 }
             }
+            found_path
         }
-    }
+    };
 
-    if let Some(path) = hwmon_path {
+    if let Some(ref path) = hwmon_path {
+        let mut read_success = false;
         for suffix in &["temp1_input", "temp2_input"] {
             let temp_path = path.join(suffix);
             if let Ok(val_str) = std::fs::read_to_string(&temp_path) {
                 if let Ok(val) = val_str.trim().parse::<u32>() {
                     highest_temp = highest_temp.max(val / 1000);
+                    read_success = true;
                 }
             }
+        }
+        // If reading the cached hwmon path failed completely, invalidate cache so it re-probes next time
+        if !read_success {
+            let mut guard = GPU_HWMON_PATH.lock().unwrap_or_else(|p| p.into_inner());
+            *guard = None;
         }
     }
 
@@ -162,26 +180,33 @@ pub fn run_nvidia_smi_with_timeout(args: &[&str], timeout: Duration) -> Option<S
 }
 
 fn read_sensor(sensor_id_hex: &str) -> Result<u32, WmiError> {
-    let buffer = format!("b01{}000000000000", sensor_id_hex);
-    let result = execute_acpi_call(&format!("\\_SB.PC00.WMID.WMBH 0x0 0x05 {}", buffer))?;
-    
+    execute_acpi_call(&format!("\\_SB.PC00.WMID.WMBH 0x0 0x05 b01{}000000000000", sensor_id_hex))
+        .and_then(|res| parse_sensor_response(sensor_id_hex, &res))
+}
+
+fn read_sensor_raw(sensor_id_hex: &str) -> Result<u32, WmiError> {
+    execute_acpi_call_raw(&format!("\\_SB.PC00.WMID.WMBH 0x0 0x05 b01{}000000000000", sensor_id_hex))
+        .and_then(|res| parse_sensor_response(sensor_id_hex, &res))
+}
+
+fn parse_sensor_response(sensor_id_hex: &str, result: &str) -> Result<u32, WmiError> {
     // Parse ACPI response (e.g. "{0x00, 0x37, 0x00, ...}").
-    let clean = result.replace(['{', '}', ' '], "");
-    let parts: Vec<&str> = clean.split(',').collect();
+    let clean = result.replace(['{', '}', ' ', '\0'], "");
+    let parts: Vec<&str> = clean.split(',').filter(|s| !s.is_empty()).collect();
     if parts.len() < 2 {
         return Err(WmiError::Other(format!("Sensor {}: invalid response format: '{}'", sensor_id_hex, result)));
     }
 
-    let byte1 = u32::from_str_radix(
-        parts[1].trim_start_matches("0x"),
-        16,
-    ).map_err(|e| WmiError::Other(format!("Sensor {}: failed to parse byte1 '{}': {}", sensor_id_hex, parts[1], e)))?;
+    let parse_byte = |s: &str| -> Result<u32, WmiError> {
+        let hex_str = s.trim().trim_start_matches("0x").trim_start_matches("0X");
+        u32::from_str_radix(hex_str, 16)
+            .map_err(|e| WmiError::Other(format!("Sensor {}: failed to parse byte '{}': {}", sensor_id_hex, s, e)))
+    };
+
+    let byte1 = parse_byte(parts[1])?;
 
     let byte2 = if parts.len() > 2 {
-        u32::from_str_radix(
-            parts[2].trim_start_matches("0x"),
-            16,
-        ).map_err(|e| WmiError::Other(format!("Sensor {}: failed to parse byte2 '{}': {}", sensor_id_hex, parts[2], e)))?
+        parse_byte(parts[2]).unwrap_or(0)
     } else {
         0
     };
@@ -194,7 +219,10 @@ fn read_sensor(sensor_id_hex: &str) -> Result<u32, WmiError> {
     }
 }
 
-fn execute_acpi_call(command: &str) -> Result<String, WmiError> {
+fn with_acpi_lock<F, R>(f: F) -> Result<R, WmiError>
+where
+    F: FnOnce() -> Result<R, WmiError>,
+{
     // Prevent concurrent writes within this process and recover from Mutex poisoning.
     let _lock = ACPI_MUTEX.lock().unwrap_or_else(|poisoned| {
         eprintln!("[nitrosense] ACPI_MUTEX was poisoned — recovering");
@@ -242,7 +270,14 @@ fn execute_acpi_call(command: &str) -> Result<String, WmiError> {
     }
 
     let _flock_guard = lock_file; // Releases flock on drop
+    f()
+}
 
+fn execute_acpi_call(command: &str) -> Result<String, WmiError> {
+    with_acpi_lock(|| execute_acpi_call_raw(command))
+}
+
+fn execute_acpi_call_raw(command: &str) -> Result<String, WmiError> {
     {
         let mut file = OpenOptions::new().write(true).open("/proc/acpi/call")
             .map_err(|e| WmiError::AcpiCallOpenFailed(e.to_string()))?;
@@ -293,14 +328,13 @@ pub fn set_rgb_zone(zone: u8, r: u8, g: u8, b: u8) -> Result<(), String> {
 }
 
 pub fn apply_rgb_settings(mode: u8, speed_index: u8, brightness: u8) -> Result<(), String> {
-    let speed = if mode == 0 {
-        0
-    } else {
-        match speed_index {
-            1 => 1,
-            3 => 9,
-            _ => 5, // Default to medium for any other value
-        }
+    // Keep sending a valid speed value even for static mode.
+    // Some Nitro EC revisions reject mode=0 with speed=0 even though older
+    // firmware accepted it.
+    let speed = match speed_index {
+        1 => 1,
+        3 => 9,
+        _ => 5, // Default to medium for any other value
     };
     let buffer = format!("b{:02x}{:02x}{:02x}0000000000", mode, speed, brightness);
     execute_acpi_call(&format!("\\_SB.PC00.WMID.WMBH 0x0 0x14 {}", buffer))

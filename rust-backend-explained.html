@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>nitrosense-linux — Rust Backend Explained Simply</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #171a23;
+    --panel-2: #1e2230;
+    --text: #e6e9f0;
+    --muted: #9aa3b5;
+    --accent: #f0652f;
+    --accent-2: #4f9cf0;
+    --green: #6ccb5f;
+    --code-bg: #0a0c12;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.65;
+  }
+  header {
+    padding: 48px 24px 32px;
+    text-align: center;
+    background: radial-gradient(600px 200px at 50% 0%, #2a2030 0%, var(--bg) 70%);
+  }
+  header h1 { margin: 0 0 8px; font-size: 2rem; }
+  header p { margin: 0; color: var(--muted); max-width: 640px; margin-inline: auto; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid #262b3a;
+    border-radius: 12px;
+    padding: 24px 28px;
+    margin-bottom: 24px;
+  }
+  h2 {
+    margin-top: 0;
+    font-size: 1.3rem;
+    border-bottom: 1px solid #2a3040;
+    padding-bottom: 10px;
+  }
+  h3 { font-size: 1.05rem; margin: 20px 0 8px; }
+  code, pre {
+    font-family: "Consolas", "Fira Code", monospace;
+    font-size: 0.9em;
+    background: var(--code-bg);
+    border: 1px solid #242a38;
+    border-radius: 6px;
+    padding: 1px 6px;
+  }
+  pre { padding: 14px 16px; overflow-x: auto; line-height: 1.5; }
+  pre code { background: none; border: none; padding: 0; }
+  ul { padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  .pill {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 999px;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+  .pill.rust { background: #2c1a12; color: var(--accent); border: 1px solid #5a3320; }
+  .pill.hw   { background: #12222c; color: var(--accent-2); border: 1px solid #20445c; }
+  .box {
+    background: var(--panel-2);
+    border-left: 4px solid var(--accent);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin: 16px 0;
+  }
+  .box.info { border-left-color: var(--accent-2); }
+  .box.green { border-left-color: var(--green); }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 0.95rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #262b3a; }
+  th { color: var(--muted); font-weight: 600; }
+  footer { text-align: center; color: var(--muted); padding: 32px 24px; font-size: 0.85rem; }
+  .muted { color: var(--muted); }
+  a { color: var(--accent-2); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🧠 The Rust Backend, Explained Simply</h1>
+  <p>How the <strong>nitrosense-linux</strong> backend controls your Acer Nitro laptop's fans and RGB lights — without the jargon getting in the way.</p>
+</header>
+
+<main>
+
+  <!-- WHAT IT IS -->
+  <section class="card">
+    <h2>🖥️ What is this app, and where does the backend fit?</h2>
+    <p>
+      <strong>nitrosense-linux</strong> is a desktop app for Acer Nitro laptops on Linux.
+      It lets you control the <strong>fan speed</strong>, change the <strong>RGB keyboard lighting</strong>,
+      and watch your <strong>CPU / GPU temperature</strong>.
+    </p>
+    <p>
+      The app is built with <strong>Tauri</strong>, which means it's really two parts:
+    </p>
+    <ul>
+      <li>
+        <strong>The frontend</strong> — HTML, CSS and JavaScript (in the <code>src/</code> folder).
+        This is the pretty window you see and click around in.
+      </li>
+      <li>
+        <strong>The backend</strong> — Rust code (in the <code>src-tauri/src/</code> folder).
+        This is the engine that does the hard work: talking to the hardware.
+      </li>
+    </ul>
+    <div class="box">
+      <strong>Analogy:</strong> Think of the frontend as the driver's dashboard, and the Rust backend as the
+      engine underneath the hood. You push a button on the dashboard, and the engine makes the wheels turn.
+    </div>
+    <p>
+      The backend is made of three files. Here they are:
+    </p>
+    <table>
+      <tr><th>File</th><th>Job</th></tr>
+      <tr><td><code>main.rs</code></td><td>The entry point. Sets everything up and exposes the "buttons" (commands) the frontend can press.</td></tr>
+      <tr><td><code>wmi.rs</code></td><td>The hardware talker. The only code that actually touches the fans, sensors and RGB lights.</td></tr>
+      <tr><td><code>config.rs</code></td><td>The "memory". Saves your settings to a file and loads them back later.</td></tr>
+    </table>
+  </section>
+
+  <!-- HOW IT TALKS TO HARDWARE -->
+  <section class="card">
+    <h2>🔌 How the backend talks to the hardware</h2>
+    <p>
+      Acer laptops don't give you a friendly API to control the fans. Instead, they expose a hidden
+      communication channel called <strong>WMI</strong> (Windows Management Instrumentation) — even on Linux.
+    </p>
+    <p>
+      On Linux, this channel can be reached through a special file called
+      <code>/proc/acpi/call</code>. Yes, it's a file, but it's a <em>virtual</em> file — writing to it
+      sends a command to the laptop's firmware, and reading from it gives you the reply.
+    </p>
+    <pre><code>// A command to set the fans to "Auto mode"
+\_SB.PC00.WMID.WMBH 0x0 0x0E b0900410000000000</code></pre>
+    <p>Let's decode that command, because this is where it gets cool:</p>
+    <ul>
+      <li><code>\_SB.PC00.WMID.WMBH</code> — the address of the WMI device on the laptop's "motherboard bus".</li>
+      <li><code>0x0E</code> — the <strong>opcode</strong> (an operation code), telling the laptop "this is a fan-mode command".</li>
+      <li><code>b0900410000000000</code> — a <strong>buffer</strong> of data with the details: the fan sub-mode and some flags.</li>
+    </ul>
+    <div class="box info">
+      <strong>Why "0x0E"?</strong> 0x0E is just hexadecimal (base-16) for the number 14. It's an agreed-upon
+      code: "0x0E means fan behavior", "0x10 means fan speed", "0x05 means read a sensor", "0x06 means set RGB color",
+      "0x14 means set RGB mode". These codes come from reverse-engineering how Acer's own software talks to the hardware.
+    </div>
+    <p>
+      Different commands use different numbers, but the pattern is always the same:
+      <strong>write a command, read back the answer</strong>.
+    </p>
+  </section>
+
+  <!-- THE THREE FILES IN DETAIL -->
+  <section class="card">
+    <h2>📁 The three files, up close</h2>
+
+    <h3>1. <code>wmi.rs</code> — the hardware talker <span class="pill hw">hardware</span></h3>
+    <p>Everything that touches the actual laptop lives here. It's split into three groups of tasks:</p>
+
+    <h4>Fans</h4>
+    <p>
+      The fans have three <strong>modes</strong> (auto, max, custom), and in custom mode you can set the
+      <strong>speed</strong> for the CPU fan and the GPU fan separately, from 0% to 100%.
+      The code clamps the number to 100 because the laptop's <em>EC</em> (embedded controller — a tiny
+      computer inside the laptop that manages power) rejects anything above 100.
+    </p>
+
+    <h4>Sensors (temperature &amp; fan speed)</h4>
+    <p>
+      Reading a temperature is also just a WMI command. The laptop answers with something that looks like
+      <code>{0x00, 0x37, 0x00, ...}</code> — a list of hex numbers. The code parses that text and turns it
+      into a normal number you can read, like "55°C".
+    </p>
+    <p>
+      One neat trick: if the GPU sensor returns 0 (because the GPU is fully asleep), the code falls back to
+      reading temperature from Linux's <em>hwmon</em> system, or even from the <code>nvidia-smi</code> tool.
+    </p>
+
+    <h4>RGB lights</h4>
+    <p>
+      The keyboard has <strong>4 zones</strong> (groups of keys), each with its own color. The backend can set
+      each zone's color (red, green, blue), and the overall <strong>mode</strong> (static, breathing, neon, wave),
+      <strong>speed</strong> and <strong>brightness</strong>.
+    </p>
+
+    <h3>2. <code>main.rs</code> — the "buttons" <span class="pill rust">backend</span></h3>
+    <p>
+      This file defines the <strong>commands</strong> — the functions the frontend can call by name.
+      Think of them as buttons on the dashboard. For example:
+    </p>
+    <table>
+      <tr><th>Command</th><th>What it does</th></tr>
+      <tr><td><code>set_fan_mode</code></td><td>Switch fans to auto / max / custom.</td></tr>
+      <tr><td><code>set_fan_speed</code></td><td>Set CPU and GPU fan percentages.</td></tr>
+      <tr><td><code>get_telemetry</code></td><td>Get CPU/GPU temperature and fan RPM.</td></tr>
+      <tr><td><code>get_system_status</code></td><td>Get CPU usage, RAM usage, GPU usage.</td></tr>
+      <tr><td><code>set_rgb_zone</code></td><td>Set the color of one keyboard zone.</td></tr>
+      <tr><td><code>apply_rgb_settings</code></td><td>Apply mode, speed and brightness to all lights.</td></tr>
+    </table>
+    <p>
+      It also keeps the <strong>app state</strong> — things the app needs to remember while it's running,
+      like the system-monitoring object and a little cache for GPU usage.
+    </p>
+
+    <h3>3. <code>config.rs</code> — the memory <span class="pill rust">backend</span></h3>
+    <p>
+      When you set your fans and lights and quit the app, you probably want them back next time.
+      This file saves your settings to a JSON file at
+      <code>~/.config/nitrosense-linux/config.json</code>.
+    </p>
+    <p>
+      It's also smart about <strong>safety</strong>: it writes to a temporary file first and then renames it.
+      If the computer crashes mid-save, you don't get a half-broken config file. And if the config file is
+      corrupt, it quietly resets to sensible defaults instead of crashing.
+    </p>
+  </section>
+
+  <!-- IMPORTANT IDEAS -->
+  <section class="card">
+    <h2>🛡️ The important safety ideas</h2>
+
+    <h3>Locking — "one at a time, please"</h3>
+    <p>
+      The hardware file <code>/proc/acpi/call</code> doesn't like two commands at the same time.
+      To prevent chaos, the backend uses <strong>locks</strong> (called <em>mutexes</em> — short for
+      "mutual exclusion"):
+    </p>
+    <ul>
+      <li>One lock keeps the app's own threads from sending hardware commands at the same moment.</li>
+      <li>Another lock (<code>flock</code>) makes sure <em>other programs</em> don't fight over the same
+          hardware file at the same time.</li>
+    </ul>
+    <div class="box">
+      <strong>Analogy:</strong> A mutex is like a public toilet with a lock. Only one person can use it at a
+      time. Everyone else waits their turn, so nobody walks in mid-use.
+    </div>
+
+    <h3>Resetting fans on exit — a good citizen</h3>
+    <p>
+      If you set the fans to "max" and close the app, the fans would keep blasting at 100%. So the backend
+      listens for the window being closed and politely resets the fans back to <strong>Auto</strong>.
+      This is a safety net so you never walk away with your laptop roaring.
+    </p>
+
+    <h3>Caching — don't ask twice</h3>
+    <p>
+      Running <code>nvidia-smi</code> is slow (it's a whole separate program). So the backend
+      <strong>caches</strong> the GPU usage for 4 seconds and only asks for a fresh value after that.
+      This keeps the app fast and doesn't hammer the system.
+    </p>
+
+    <h3>Always-on application</h3>
+    <p>
+      The backend can also run in a special "<strong>apply</strong>" mode (<code>--apply</code>). This is used
+      at boot/login to re-apply your saved fan and RGB settings without opening the window — just run it,
+      apply, and exit.
+    </p>
+  </section>
+
+  <!-- FLOW DIAGRAM -->
+  <section class="card">
+    <h2>🔄 The whole journey, start to finish</h2>
+    <ol>
+      <li>You drag a slider to "80% fan speed" in the frontend.</li>
+      <li>The frontend calls the <code>set_fan_speed</code> command.</li>
+      <li><code>main.rs</code> receives the call and hands it to <code>wmi.rs</code>.</li>
+      <li><code>wmi.rs</code> grabs the lock, builds the WMI command, writes it to <code>/proc/acpi/call</code>.</li>
+      <li>The laptop's embedded controller reads the command and sets the fan speed.</li>
+      <li>The command is confirmed, the lock is released, and the frontend shows "saved!"</li>
+    </ol>
+    <div class="box green">
+      <strong>So remember:</strong> the backend is a <em>translator and bodyguard</em>. It translates clicks
+      into the laptop's secret language, keeps the hardware safe by locking and cleaning up, and never crashes
+      the app — no matter what weird thing the hardware or the config file throws at it.
+    </div>
+  </section>
+
+  <!-- FILE MAP -->
+  <section class="card">
+    <h2>🗺️ Quick map of the backend files</h2>
+    <pre><code>src-tauri/
+├── Cargo.toml          # The "shopping list" of libraries the app uses
+└── src/
+    ├── main.rs         # Entry point + all the commands (buttons)
+    ├── wmi.rs          # Talks to the laptop hardware (fans, sensors, RGB)
+    └── config.rs       # Saves/loads your settings as a JSON file</code></pre>
+  </section>
+
+</main>
+
+<footer>
+  Built from the actual source in <code>src-tauri/src/</code> · nitrosense-linux · Acer Nitro fan, RGB and system monitor
+</footer>
+
+</body>
+</html>

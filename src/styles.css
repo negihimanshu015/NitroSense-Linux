@@ -876,6 +876,42 @@ input[type=range].glass-range::-webkit-slider-thumb {
   box-shadow: 0 0 10px currentColor;
 }
 
+.custom-color-picker {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 2px solid var(--glass-border);
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+  overflow: hidden;
+  transition: all 0.2s;
+  box-shadow: 0 0 6px rgba(0,0,0,0.5);
+}
+
+.custom-color-picker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.custom-color-picker::-webkit-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+
+.custom-color-picker:hover {
+  transform: scale(1.1);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.custom-color-picker:focus {
+  outline: none;
+  border-color: #ffffff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+}
+
 /* ==========================================================================
    Previously inline styles — moved to stylesheet
    ========================================================================== */

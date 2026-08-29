@@ -33,13 +33,13 @@
     </div>
     
     <!-- Sidebar Navigation -->
-    <aside class="sidebar" data-tauri-drag-region>
+    <aside class="sidebar">
       <div>
-        <div class="logo-container">
-          <div class="logo">
+        <div class="logo-container" data-tauri-drag-region>
+          <div class="logo" data-tauri-drag-region>
             NITRO<span>CONTROL</span>
           </div>
-          <div class="logo-sub">Linux Console</div>
+          <div class="logo-sub" data-tauri-drag-region>Linux Console</div>
         </div>
         
         <nav>
@@ -75,7 +75,7 @@
     </aside>
 
     <!-- Main Content Screens -->
-    <main class="content-area" data-tauri-drag-region>
+    <main class="content-area">
 
       <!-- ==========================================
            SCREEN 1: FAN CONTROLS
@@ -88,9 +88,9 @@
             <div class="glass-card mode-card">
               <h3>Operating Mode</h3>
               <div class="mode-selector">
-                <button class="mode-btn active" data-mode="auto" id="btn-auto">Auto</button>
-                <button class="mode-btn" data-mode="max" id="btn-max">Max</button>
-                <button class="mode-btn" data-mode="custom" id="btn-custom">Custom</button>
+                <button class="mode-btn active" data-mode="auto" id="btn-auto" aria-pressed="true">Auto</button>
+                <button class="mode-btn" data-mode="max" id="btn-max" aria-pressed="false">Max</button>
+                <button class="mode-btn" data-mode="custom" id="btn-custom" aria-pressed="false">Custom</button>
               </div>
             </div>
 
@@ -388,6 +388,7 @@
                   <div class="palette-color" style="background: #5a189a; color: #5a189a;" role="button" tabindex="0" aria-label="Indigo"></div>
                   <div class="palette-color" style="background: #ffffff; color: #ffffff;" role="button" tabindex="0" aria-label="White"></div>
                   <div class="palette-color selected" style="background: #ff0000; color: #ff0000;" role="button" tabindex="0" aria-label="Red"></div>
+                  <input type="color" class="custom-color-picker" id="custom-color-picker" title="Choose Custom Zone Color" aria-label="Choose Custom Zone Color" value="#ff0000">
                 </div>
               </div>
 

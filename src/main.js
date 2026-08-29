@@ -14,16 +14,24 @@ let appConfig = null;
 let isInitializing = false;
 
 let saveTimeout;
+let saveResolvers = [];
 function saveConfig() {
-  if (isInitializing) return;
+  if (isInitializing) return Promise.resolve();
   clearTimeout(saveTimeout);
-  saveTimeout = setTimeout(async () => {
-    try {
-      await invoke('save_config', { config: appConfig });
-    } catch (e) {
-      console.error('Failed to save config:', e);
-    }
-  }, 500);
+  return new Promise((resolve) => {
+    saveResolvers.push(resolve);
+    saveTimeout = setTimeout(async () => {
+      try {
+        await invoke('save_config', { config: appConfig });
+      } catch (e) {
+        console.error('Failed to save config:', e);
+      } finally {
+        const resolvers = saveResolvers;
+        saveResolvers = [];
+        resolvers.forEach(r => r());
+      }
+    }, 500);
+  });
 }
 
 const btnAuto = document.getElementById('btn-auto');
@@ -44,6 +52,9 @@ async function setMode(mode) {
     btnAuto.classList.toggle('active', mode === 'auto');
     btnMax.classList.toggle('active', mode === 'max');
     btnCustom.classList.toggle('active', mode === 'custom');
+    btnAuto.setAttribute('aria-pressed', mode === 'auto');
+    btnMax.setAttribute('aria-pressed', mode === 'max');
+    btnCustom.setAttribute('aria-pressed', mode === 'custom');
     
     if (appConfig) {
       appConfig.fan_mode = mode;
@@ -255,8 +266,12 @@ async function checkDeps() {
 
 // Navigation & RGB tab switching (supporting keyboard accessibility)
 function activateNavItem(item) {
-  document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(nav => {
+    nav.classList.remove('active');
+    nav.setAttribute('aria-selected', 'false');
+  });
   item.classList.add('active');
+  item.setAttribute('aria-selected', 'true');
   document.querySelectorAll('.screen-panel').forEach(panel => panel.classList.remove('active'));
   const target = document.getElementById(item.getAttribute('data-target'));
   if (target) target.classList.add('active');
@@ -293,6 +308,12 @@ function parseColor(colorStr) {
     return null;
 }
 
+function rgbToHex(r, g, b) {
+  return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+
+const customColorPicker = document.getElementById('custom-color-picker');
+
 const zoneElements = document.querySelectorAll('.kb-zone');
 function activateZone(z) {
   zoneElements.forEach(el => el.classList.remove('selected'));
@@ -303,14 +324,22 @@ function activateZone(z) {
   if (currentGlow) {
       const parsedGlow = parseColor(currentGlow);
       if (parsedGlow) {
+          if (customColorPicker) {
+              customColorPicker.value = rgbToHex(parsedGlow.r, parsedGlow.g, parsedGlow.b);
+          }
+          let matched = false;
           paletteColors.forEach(el => {
               const elColor = window.getComputedStyle(el).backgroundColor;
               const parsedEl = parseColor(elColor);
               if (parsedEl && parsedEl.r === parsedGlow.r && parsedEl.g === parsedGlow.g && parsedEl.b === parsedGlow.b) {
                   paletteColors.forEach(c => c.classList.remove('selected'));
                   el.classList.add('selected');
+                  matched = true;
               }
           });
+          if (!matched) {
+              paletteColors.forEach(c => c.classList.remove('selected'));
+          }
       }
   }
 }
@@ -325,38 +354,53 @@ zoneElements.forEach(z => {
   });
 });
 
+async function setZoneColor(r, g, b, colorStr) {
+  try {
+    await invoke('set_rgb_zone', { zone: activeZone, r, g, b });
+
+    const activeZoneEl = document.querySelector(`.kb-zone-${activeZone}`);
+    if (activeZoneEl) {
+      activeZoneEl.style.setProperty('--zone-glow', colorStr);
+    }
+    if (appConfig) {
+      appConfig[`rgb_zone_color_${activeZone}`] = colorStr;
+      await saveConfig();
+    }
+
+    if (currentRgbMode === 0) {
+      await applyRgb();
+    }
+  } catch (e) {
+    console.error("Failed to set zone color:", e);
+  }
+}
+
 const paletteColors = document.querySelectorAll('.palette-color');
 async function activatePaletteColor(colorEl) {
   paletteColors.forEach(el => el.classList.remove('selected'));
   colorEl.classList.add('selected');
 
   const bg = window.getComputedStyle(colorEl).backgroundColor;
-  const match = bg.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-  if (match) {
-    const r = parseInt(match[1]);
-    const g = parseInt(match[2]);
-    const b = parseInt(match[3]);
-
-    try {
-      await invoke('set_rgb_zone', { zone: activeZone, r, g, b });
-
-      // Dynamically update the active zone's glow color in UI
-      const activeZoneEl = document.querySelector(`.kb-zone-${activeZone}`);
-      if (activeZoneEl) {
-        activeZoneEl.style.setProperty('--zone-glow', bg);
-      }
-      if (appConfig) {
-        appConfig[`rgb_zone_color_${activeZone}`] = bg;
-        await saveConfig();
-      }
-
-      if (currentRgbMode === 0) {
-        await applyRgb();
-      }
-    } catch (e) {
-      console.error("Failed to set color:", e);
+  const parsed = parseColor(bg);
+  if (parsed) {
+    if (customColorPicker) {
+      customColorPicker.value = rgbToHex(parsed.r, parsed.g, parsed.b);
     }
+    await setZoneColor(parsed.r, parsed.g, parsed.b, bg);
   }
+}
+
+if (customColorPicker) {
+  const handleCustomColor = async (e) => {
+    const hex = e.target.value;
+    const parsed = parseColor(hex);
+    if (parsed) {
+      paletteColors.forEach(el => el.classList.remove('selected'));
+      await setZoneColor(parsed.r, parsed.g, parsed.b, hex);
+    }
+  };
+  customColorPicker.addEventListener('input', handleCustomColor);
+  customColorPicker.addEventListener('change', handleCustomColor);
 }
 
 paletteColors.forEach(colorEl => {
@@ -434,7 +478,9 @@ async function applyRgb() {
     try {
         await invoke('apply_rgb_settings', { 
             mode: currentRgbMode, 
-            speed: currentRgbMode === 0 ? 0 : currentRgbSpeed, 
+            // Keep the persisted speed index for static mode too; some firmware
+            // revisions reject a zero-speed static packet.
+            speed: currentRgbSpeed, 
             brightness: currentBrightness 
         });
     } catch (e) {
@@ -507,12 +553,20 @@ async function initApp() {
         currentRgbSpeed = appConfig.rgb_speed_index;
 
         const savedMode = appConfig.rgb_mode;
-        let clicked = false;
         if (savedMode) {
             const targetBtn = document.querySelector(`.preset-btn[data-preset="${savedMode}"]`);
             if (targetBtn) {
-                targetBtn.click();
-                clicked = true;
+                presetBtns.forEach(el => el.classList.remove('active'));
+                targetBtn.classList.add('active');
+                if (savedMode === 'static') currentRgbMode = 0;
+                else if (savedMode === 'breathing') currentRgbMode = 1;
+                else if (savedMode === 'neon') currentRgbMode = 2;
+                else if (savedMode === 'wave') currentRgbMode = 3;
+
+                const speedGroup = document.querySelector('.slider-speed').closest('.slider-group');
+                const isStatic = (savedMode === 'static');
+                speedGroup.classList.toggle('disabled', isStatic);
+                document.querySelector('.slider-speed').disabled = isStatic;
             }
         } else {
             const activePreset = document.querySelector('.preset-btn.active');
@@ -523,13 +577,11 @@ async function initApp() {
             }
         }
 
-        if (!clicked) {
-            await applyRgb();
-        }
+        await applyRgb();
         
         const defaultZoneEl = document.querySelector(`.kb-zone-${activeZone}`);
         if (defaultZoneEl) {
-            defaultZoneEl.click();
+            activateZone(defaultZoneEl);
         }
     } finally {
         isInitializing = false;

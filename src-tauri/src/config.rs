@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crate::wmi::{self, FanBehavior, FanGroup};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(default)]
 pub struct AppConfig {
     pub fan_mode: String,
     pub cpu_percent: u8,
@@ -108,15 +109,29 @@ pub fn save_config(config: AppConfig) -> Result<(), String> {
 }
 
 fn parse_rgb(color_str: &str) -> Option<(u8, u8, u8)> {
-    let clean = color_str.replace(" ", "");
+    let clean = color_str.trim();
     if (clean.starts_with("rgb(") || clean.starts_with("rgba(")) && clean.ends_with(')') {
-        let start = if clean.starts_with("rgba(") { 5 } else { 4 };
-        let inner = &clean[start..clean.len() - 1];
+        let clean_no_space = clean.replace(" ", "");
+        let start = if clean_no_space.starts_with("rgba(") { 5 } else { 4 };
+        let inner = &clean_no_space[start..clean_no_space.len() - 1];
         let parts: Vec<&str> = inner.split(',').collect();
         if parts.len() >= 3 {
             let r = parts[0].parse::<u8>().ok()?;
             let g = parts[1].parse::<u8>().ok()?;
             let b = parts[2].parse::<u8>().ok()?;
+            return Some((r, g, b));
+        }
+    } else if clean.starts_with('#') {
+        let hex = clean.trim_start_matches('#');
+        if hex.len() == 6 {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            return Some((r, g, b));
+        } else if hex.len() == 3 {
+            let r = u8::from_str_radix(&hex[0..1].repeat(2), 16).ok()?;
+            let g = u8::from_str_radix(&hex[1..2].repeat(2), 16).ok()?;
+            let b = u8::from_str_radix(&hex[2..3].repeat(2), 16).ok()?;
             return Some((r, g, b));
         }
     }

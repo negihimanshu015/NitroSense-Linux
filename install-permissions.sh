@@ -1,9 +1,20 @@
 #!/bin/bash
 # Setup script to grant the user group-level write access to /proc/acpi/call without sudo.
 
+set -euo pipefail
+
 if [ "$EUID" -ne 0 ]; then
   echo "Please run this script with sudo:"
   echo "sudo ./install-permissions.sh"
+  exit 1
+fi
+
+# Get real user (avoid adding root to nitrosense group).
+REAL_USER="${SUDO_USER:-$USER}"
+
+if [ "$REAL_USER" = "root" ]; then
+  echo "ERROR: Running directly as root without SUDO_USER."
+  echo "       Please run from a normal user shell with: sudo ./install-permissions.sh"
   exit 1
 fi
 
@@ -38,9 +49,6 @@ if ! modinfo acpi_call &>/dev/null 2>&1; then
   echo "After installing, re-run:  sudo ./install-permissions.sh"
   exit 1
 fi
-
-# Get real user (avoid adding root to nitrosense group).
-REAL_USER="${SUDO_USER:-$USER}"
 
 echo "Creating 'nitrosense' group (if it doesn't already exist)..."
 if ! getent group nitrosense > /dev/null 2>&1; then
@@ -85,8 +93,8 @@ else
 fi
 
 # Load kernel modules and apply session permissions.
-modprobe acer_wmi 2>/dev/null
-modprobe acpi_call 2>/dev/null
+modprobe acpi_call 2>/dev/null || true
+modprobe acer_wmi 2>/dev/null || true
 if [ -f /proc/acpi/call ]; then
   chown root:nitrosense /proc/acpi/call
   chmod 660 /proc/acpi/call
