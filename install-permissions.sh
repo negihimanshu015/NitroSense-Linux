@@ -58,16 +58,70 @@ fi
 echo "Adding '$REAL_USER' to the 'nitrosense' group..."
 usermod -aG nitrosense "$REAL_USER"
 
-echo "Installing udev rule for /proc/acpi/call..."
+# Load kernel modules first so /proc/acpi/call is created by the kernel.
+echo "Loading kernel modules..."
+modprobe acpi_call || true
+modprobe acer_wmi || true
+
+if [ ! -f /proc/acpi/call ]; then
+  echo ""
+  echo "=========================================================================="
+  echo "ERROR: /proc/acpi/call was NOT created after loading 'acpi_call'."
+  echo "=========================================================================="
+
+  IS_SB=false
+  if command -v mokutil &>/dev/null && mokutil --sb-state 2>/dev/null | grep -qi "enabled"; then
+    IS_SB=true
+  elif [ -f /sys/kernel/security/lockdown ] && grep -vq "\[none\]" /sys/kernel/security/lockdown 2>/dev/null; then
+    IS_SB=true
+  fi
+
+  if [ "$IS_SB" = true ]; then
+    echo "REASON: Secure Boot is ENABLED on your system."
+    echo "        The Linux kernel blocked loading the unsigned 'acpi_call' module."
+    echo ""
+    echo "To fix this, choose ONE of the following options:"
+    echo ""
+    echo "  OPTION 1 (Recommended & Easiest): Disable Secure Boot in BIOS"
+    echo "    1. Reboot your laptop and press F2 (or Del) to enter BIOS Setup."
+    echo "    2. Under the 'Security' tab, set a Supervisor Password (if required)."
+    echo "    3. Change 'Secure Boot' to 'Disabled'."
+    echo "    4. Save & Exit, then boot into Linux."
+    echo ""
+    echo "  OPTION 2: Enroll DKMS MOK Key (Keep Secure Boot ON)"
+    echo "    1. Run:  sudo mokutil --import /var/lib/dkms/mok.pub"
+    echo "             (Set a temporary password when prompted, e.g. 12345678)"
+    echo "    2. Reboot your laptop."
+    echo "    3. On boot, the blue Shim MOK Manager screen will appear."
+    echo "    4. Select 'Enroll MOK' -> 'Continue' -> 'Yes' -> Enter your password -> Reboot."
+    echo ""
+    echo "After completing Option 1 or Option 2, re-run:  sudo ./install-permissions.sh"
+    echo "=========================================================================="
+  else
+    echo "Please check 'dmesg | tail -n 20' to see why the acpi_call module failed to initialize."
+    echo "=========================================================================="
+  fi
+  exit 1
+fi
+
+echo "Installing tmpfiles configuration for /proc/acpi/call..."
 
 # Persist /proc/acpi/call permissions using systemd-tmpfiles (udev doesn't manage /proc).
+# Note: 'z' is used so systemd-tmpfiles sets permissions on /proc/acpi/call when present without attempting to create it.
 ACPI_CONF="/etc/tmpfiles.d/acpi_call.conf"
 if [ -f "$ACPI_CONF" ]; then
-  echo "WARNING: $ACPI_CONF already exists. Skipping to avoid overwriting your configuration."
-  echo "         To reinstall, delete it manually: sudo rm $ACPI_CONF"
+  if grep -q "^f /proc/acpi/call" "$ACPI_CONF"; then
+    echo "Updating existing $ACPI_CONF to use 'z' directive..."
+    cat << 'EOF' > "$ACPI_CONF"
+z /proc/acpi/call 0660 root nitrosense - -
+EOF
+  else
+    echo "WARNING: $ACPI_CONF already exists. Skipping to avoid overwriting custom configuration."
+    echo "         To reinstall, delete it manually: sudo rm $ACPI_CONF"
+  fi
 else
   cat << 'EOF' > "$ACPI_CONF"
-f /proc/acpi/call 0660 root nitrosense - -
+z /proc/acpi/call 0660 root nitrosense - -
 EOF
 fi
 
@@ -89,12 +143,9 @@ if command -v systemd-tmpfiles &>/dev/null; then
 else
   echo "NOTE: 'systemd-tmpfiles' not found (non-systemd distro)."
   echo "      /proc/acpi/call permissions will be applied on next boot."
-  echo "      Applying permissions manually for this session..."
 fi
 
-# Load kernel modules and apply session permissions.
-modprobe acpi_call 2>/dev/null || true
-modprobe acer_wmi 2>/dev/null || true
+# Apply session permissions manually
 if [ -f /proc/acpi/call ]; then
   chown root:nitrosense /proc/acpi/call
   chmod 660 /proc/acpi/call

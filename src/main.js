@@ -256,6 +256,9 @@ async function checkDeps() {
           <li>Log out and back in (or run <code>newgrp nitrosense</code>).</li>
           <li>Restart this application.</li>
         </ol>
+        <p style="margin-top: 1rem; margin-bottom: 0; font-size: 0.9rem; color: #ffb703; line-height: 1.5;">
+          <strong>Note for Secure Boot users:</strong> If running <code>install-permissions.sh</code> fails, Secure Boot is blocking the module. Disable Secure Boot in BIOS/UEFI or enroll the DKMS MOK key: <code>sudo mokutil --import /var/lib/dkms/mok.pub</code> and reboot.
+        </p>
       </div>
     `;
     document.body.appendChild(overlay);

@@ -110,6 +110,9 @@ sudo ./install-permissions.sh
 
 Then **log out and log back in** (or run `newgrp nitrosense`) for the group change to take effect.
 
+> [!IMPORTANT]
+> **Secure Boot Note**: If `install-permissions.sh` warns that `/proc/acpi/call` was not created, Secure Boot is blocking the `acpi_call` kernel module (`Loading of module with unavailable key is rejected`). To resolve this, either **disable Secure Boot in BIOS** (recommended) or enroll the DKMS key via `sudo mokutil --import /var/lib/dkms/mok.pub` and reboot.
+
 ---
 
 ### Step 4 — Install Tauri Prerequisites
